@@ -39,7 +39,12 @@ def load_cache(category):
 
 def generate_commentary(title, summary, source, api_key):
     """调用 MiniMax AI 生成一句话点评"""
-    prompt = f"""你是一个精炼的信息评论员。读完后用一句话点评，100字以内，要有观点。
+    prompt = f"""你是一个精炼的投资分析师。读完文章后，用一段话点评，重点关注：
+1. 这个消息对投资市场的影响（利多/利空/中性）
+2. 是否有商业或投机机会（赛道/公司/时机）
+3. 相关A股联想（如涉及A股上市公司，给出股票代码或名称）
+4. 风险提示（如有）
+150字以内，要有明确的判断倾向。
 
 来源: {source}
 标题: {title}
