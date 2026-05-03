@@ -6,7 +6,23 @@ import sys
 import json
 import argparse
 import requests
+import re
 from datetime import datetime
+
+
+def strip_html(text):
+    """移除 HTML 标签和一些常见的残留噪音"""
+    if not text:
+        return ''
+    # 先移除 HTML 标签
+    text = re.sub(r'<[^>]+>', '', text)
+    # 清理 &lt; &gt; 等 HTML 实体
+    text = re.sub(r'&[a-z]+;', ' ', text)
+    # 移除末尾的推广信息（如 #欢迎关注微信...）
+    text = re.sub(r'#欢迎关注[^\n]*$', '', text)
+    # 清理多余空白
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
 
 MINIMAX_API_URL = "https://api.minimax.chat/v1/text/chatcompletion_v2"
@@ -81,7 +97,7 @@ def generate_markdown(date, entries_by_source, api_key):
             md += f"""### [{entry['title']}]({entry['url']})
 
 - 来源: {entry['source']}
-- 摘要: {entry.get('summary', '')[:200]}
+- 摘要: {strip_html(entry.get('summary', ''))[:200]}
 - 点评: {commentary}
 
 """
@@ -102,7 +118,7 @@ def generate_markdown(date, entries_by_source, api_key):
             md += f"""### [{entry['title']}]({entry['url']})
 
 - 来源: {entry['source']}
-- 摘要: {entry.get('summary', '')[:200]}
+- 摘要: {strip_html(entry.get('summary', ''))[:200]}
 - 点评: {commentary}
 
 """
@@ -117,7 +133,7 @@ def generate_markdown(date, entries_by_source, api_key):
             md += f"""### [{entry['title']}]({entry.get('url', '#')})
 
 - 来源: {entry['source']}
-- 摘要: {entry.get('summary', '')[:200]}
+- 摘要: {strip_html(entry.get('summary', ''))[:200]}
 - 点评: （待实现）
 
 """
@@ -132,7 +148,7 @@ def generate_markdown(date, entries_by_source, api_key):
             md += f"""### {entry['title']}
 
 - 发件人: {entry.get('sender', 'Unknown')}
-- 摘要: {entry.get('summary', '')[:200]}
+- 摘要: {strip_html(entry.get('summary', ''))[:200]}
 - 点评: （待实现）
 
 """

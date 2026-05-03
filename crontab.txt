@@ -1,0 +1,5 @@
+# Octopus 信息聚合系统 - 定时任务
+# 每天早 6 点和晚 18 点运行
+
+0 6 * * * cd /home/admin/octopus && /bin/bash scripts/run.sh morning >> logs/morning.log 2>&1
+0 18 * * * cd /home/admin/octopus && /bin/bash scripts/run.sh evening >> logs/evening.log 2>&1
