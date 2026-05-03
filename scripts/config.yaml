@@ -1,0 +1,39 @@
+# Octopus 信息聚合配置
+# 信息源配置
+
+sources:
+  # RSS 订阅源（财经 + 科技类）
+  rss:
+    # 科技
+    - url: "https://feeds.feedburner.com/36kr"
+      name: "36氪"
+    - url: "https://www.ifanr.com/feed"
+      name: "爱范儿"
+    - url: "https://sspai.com/feed"
+      name: "少数派"
+
+    # 财经
+    - url: "https://www.jiqizhixin.com/rss"
+      name: "机器之心"
+    - url: "https://rsshub.app/wallstreetcn/news"
+      name: "华尔街见闻"
+    - url: "https://www.labicaijing.com/rss"
+      name: "拉勾"
+    - url: "https://feed.eastmoney.com/caijing.xml"
+      name: "东方财富"
+
+  # 网站（通过 CSS selector 提取）
+  websites: []
+
+  # 飞书群聊（待实现）
+  feishu:
+    chat_ids: []
+
+  # 邮件（待实现）
+  email:
+    enabled: false
+    imap: ""
+    username: ""
+    password: ""
+    folder: "INBOX"
+    keywords: []
