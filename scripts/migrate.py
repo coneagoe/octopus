@@ -28,27 +28,31 @@ def migrate_entries(entries: list, db_path: str) -> int:
     init(db_path)
     sess = get_session()
     count = 0
-    now = datetime.now(timezone.utc)
+    from scripts.db import utcnow_naive
+    now = utcnow_naive()
     for entry in entries:
         url = entry.get('url', '')
         if not url:
             continue
         existing = sess.get(Article, url)
         if existing:
+            # update last_seen if not duplicate insert
             existing.last_seen = now
-        else:
-            article = Article(
-                url=url,
-                title=entry.get('title', ''),
-                source=entry.get('source', ''),
-                source_type=entry.get('source_type', 'rss'),
-                published=entry.get('published', ''),
-                summary=entry.get('summary', ''),
-                first_fetched=now,
-                last_seen=now,
-            )
-            sess.add(article)
-            count += 1
+            sess.commit()
+            continue
+        article = Article(
+            url=url,
+            title=entry.get('title', '') or '',
+            source=entry.get('source', '') or '',
+            source_type=entry.get('source_type', 'rss'),
+            published=entry.get('published', '') or '',
+            summary=entry.get('summary', '') or '',
+            first_fetched=now,
+            last_seen=now,
+        )
+        sess.add(article)
+        count += 1
+    sess.commit()
     sess.commit()
     sess.close()
     return count

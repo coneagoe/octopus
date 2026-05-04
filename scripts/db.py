@@ -1,7 +1,7 @@
 """数据库管理 — SQLite + SQLAlchemy ORM"""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, String, Text, DateTime
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -20,9 +20,15 @@ class Article(Base):
     source_type = Column(String(32))  # 'rss' / 'web' / 'feishu' / 'email'
     published = Column(String(256), default='')
     summary = Column(Text, default='')
-    first_fetched = Column(DateTime, default=datetime.utcnow)
-    last_seen = Column(DateTime, default=datetime.utcnow)
+    first_fetched = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+
+def utcnow_naive():
+    """
+    返回当前 UTC 时间（naive datetime，无 tzinfo）
+    """
+    return datetime.utcnow().replace(tzinfo=None)
 
 class DailyEntry(Base):
     """日报条目表 — 记录每天写了哪些文章"""
