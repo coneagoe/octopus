@@ -6,6 +6,9 @@ import os
 
 import feedparser
 
+from scripts.db import Article, get_session, init, utcnow_naive
+from scripts.url_normalize import make_entry_hash, normalize_url
+
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
 
 
@@ -18,34 +21,43 @@ def load_config():
 def fetch_rss(url, name, db_path=None):
     """抓取单个 RSS 源，返回新增条目列表（已去重）"""
     print(f"  抓取: {name} ({url})")
+    sess = None
     try:
         feed = feedparser.parse(url)
         new_entries = []
 
+        if db_path:
+            init(db_path)
+            sess = get_session()
+
         for entry in feed.entries[:10]:  # 最新10条
-            entry_url = entry.get('link', '')
-            if not entry_url:
+            raw_url = str(entry.get('link') or '')
+            if not raw_url:
                 continue
 
-            # 如果提供了 db_path，进行去重检查
-            if db_path:
-                from scripts.db import init, get_session, Article, utcnow_naive
-                init(db_path)
-                sess = get_session()
-                existing = sess.get(Article, entry_url)
+            try:
+                normalized_url = normalize_url(raw_url)
+            except ValueError:
+                print(f"    -> 跳过非法 URL: {raw_url}")
+                continue
+
+            entry_hash = make_entry_hash(normalized_url)
+
+            if sess is not None:
+                existing = sess.get(Article, entry_hash)
                 if existing:
-                    # 已存在：更新 last_seen 但不返回
                     existing.last_seen = utcnow_naive()
-                    sess.commit()
-                    sess.close()
                     continue
-                # 不存在：插入新记录
+
                 now = utcnow_naive()
                 title = str(entry.get('title') or '')
                 published = str(entry.get('published') or '')
                 summary = str(entry.get('summary') or '')[:500]
                 article = Article(
-                    url=entry_url,
+                    entry_hash=entry_hash,
+                    normalized_url=normalized_url,
+                    url=raw_url,
+                    author='',
                     title=title,
                     source=name,
                     source_type='rss',
@@ -55,26 +67,29 @@ def fetch_rss(url, name, db_path=None):
                     last_seen=now,
                 )
                 sess.add(article)
-                sess.commit()
-                sess.close()
-            else:
-                # 无 db_path 时走旧逻辑（兼容旧调用）
-                pass
 
             new_entries.append({
                 'source': name,
                 'source_type': 'rss',
                 'title': str(entry.get('title') or ''),
-                'url': entry_url,
+                'url': raw_url,
+                'normalized_url': normalized_url,
+                'entry_hash': entry_hash,
                 'published': str(entry.get('published') or ''),
                 'summary': str(entry.get('summary') or '')[:500],
             })
+
+        if sess is not None:
+            sess.commit()
 
         print(f"    -> 获取 {len(new_entries)} 条新条目")
         return new_entries
     except Exception as e:
         print(f"    -> 错误: {e}")
         return []
+    finally:
+        if sess is not None:
+            sess.close()
 
 
 def main():

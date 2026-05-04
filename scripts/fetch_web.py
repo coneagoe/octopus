@@ -8,6 +8,9 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+from scripts.db import Article, get_session, init, utcnow_naive
+from scripts.url_normalize import make_entry_hash, normalize_url
+
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
 
 
@@ -21,6 +24,7 @@ def load_config():
 def fetch_web(url, name, selector='article', db_path=None):
     """抓取单个网页，返回新增条目列表（已去重）"""
     print(f"  抓取: {name} ({url})")
+    sess = None
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (compatible; Octopus/1.0; +https://github.com/coneagoe/octopus)'
@@ -30,6 +34,50 @@ def fetch_web(url, name, selector='article', db_path=None):
 
         soup = BeautifulSoup(resp.text, 'html.parser')
         articles = []
+
+        if db_path:
+            init(db_path)
+            sess = get_session()
+
+        def build_article_payload(raw_url, title, summary):
+            try:
+                normalized_url = normalize_url(raw_url)
+            except ValueError:
+                print(f"    -> 跳过非法 URL: {raw_url}")
+                return None
+
+            entry_hash = make_entry_hash(normalized_url)
+            now = utcnow_naive()
+
+            if sess is not None:
+                existing = sess.get(Article, entry_hash)
+                if existing:
+                    existing.last_seen = now
+                    return None
+
+                sess.add(Article(
+                    entry_hash=entry_hash,
+                    normalized_url=normalized_url,
+                    url=raw_url,
+                    author='',
+                    title=title,
+                    source=name,
+                    source_type='web',
+                    published='',
+                    summary=summary,
+                    first_fetched=now,
+                    last_seen=now,
+                ))
+
+            return {
+                'source': name,
+                'source_type': 'web',
+                'title': title,
+                'url': raw_url,
+                'normalized_url': normalized_url,
+                'entry_hash': entry_hash,
+                'summary': summary,
+            }
 
         # 尝试提取文章列表
         for item in soup.select(selector)[:10]:
@@ -41,94 +89,34 @@ def fetch_web(url, name, selector='article', db_path=None):
                 continue
 
             href = link_elem.get('href') if link_elem else None
-            article_url = urljoin(url, href) if isinstance(href, str) else url
-
-            # 去重检查
-            if db_path:
-                from scripts.db import Article, get_session, init, utcnow_naive
-
-                init(db_path)
-                sess = get_session()
-                existing = sess.get(Article, article_url)
-                if existing:
-                    existing.last_seen = utcnow_naive()
-                    sess.commit()
-                    sess.close()
-                    continue
-
-                now = utcnow_naive()
-                article = Article(
-                    url=article_url,
-                    title=title_elem.get_text(strip=True),
-                    source=name,
-                    source_type='web',
-                    published='',
-                    summary=summary_elem.get_text(strip=True)[:500] if summary_elem else '',
-                    first_fetched=now,
-                    last_seen=now,
-                )
-                sess.add(article)
-                sess.commit()
-                sess.close()
-            else:
-                # 无 db_path 时走旧逻辑
-                pass
-
-            articles.append({
-                'source': name,
-                'source_type': 'web',
-                'title': title_elem.get_text(strip=True),
-                'url': article_url,
-                'summary': summary_elem.get_text(strip=True)[:500] if summary_elem else '',
-            })
+            raw_url = urljoin(url, href) if isinstance(href, str) else url
+            article = build_article_payload(
+                raw_url,
+                title_elem.get_text(strip=True),
+                summary_elem.get_text(strip=True)[:500] if summary_elem else '',
+            )
+            if article is not None:
+                articles.append(article)
 
         # 如果 selector 没找到，回退到整页提取
         if not articles:
             title = soup.find('title')
             title_text = title.get_text(strip=True) if title else name
-            article_url = url
+            article = build_article_payload(url, title_text, '')
+            if article is not None:
+                articles.append(article)
 
-            if db_path:
-                from scripts.db import Article, get_session, init, utcnow_naive
-
-                init(db_path)
-                sess = get_session()
-                now = utcnow_naive()
-                existing = sess.get(Article, article_url)
-                if not existing:
-                    article = Article(
-                        url=article_url,
-                        title=title_text,
-                        source=name,
-                        source_type='web',
-                        published='',
-                        summary='',
-                        first_fetched=now,
-                        last_seen=now,
-                    )
-                    sess.add(article)
-                    sess.commit()
-                    sess.close()
-                else:
-                    existing.last_seen = now
-                    sess.commit()
-                    sess.close()
-            else:
-                pass
-
-            articles.append({
-                'source': name,
-                'source_type': 'web',
-                'title': title_text,
-                'url': article_url,
-                'summary': '',
-            })
+        if sess is not None:
+            sess.commit()
 
         print(f"    -> 获取 {len(articles)} 条新条目")
         return articles
     except Exception as e:
         print(f"    -> 错误: {e}")
         return []
+    finally:
+        if sess is not None:
+            sess.close()
 
 
 def main():

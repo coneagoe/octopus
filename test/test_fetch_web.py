@@ -67,47 +67,43 @@ class TestFetchWebDedup:
         assert entries == []
 
     def test_fetch_web_inserts_new_into_db(self, monkeypatch, tmp_path):
-        from scripts.db import init, Article, get_session
+        from scripts.db import Article, get_session, init
         from scripts.fetch_web import fetch_web
+        from scripts.url_normalize import make_entry_hash, normalize_url
 
         db_path = tmp_path / "test.db"
         init(str(db_path))
 
-        class FakeSoup:
-            def select(self, sel):
-                return [
-                    {"title": "Test Article", "href": "/article1", "summary": "summary text"}
-                ]
-            find = lambda s, tag: None
-
-        class FakeResponse:
-            text = "<html></html>"
-            def raise_for_status(self):
-                pass
-
-        monkeypatch.setattr("requests.get", lambda url, headers, timeout: FakeResponse())
-        monkeypatch.setattr("bs4.BeautifulSoup", lambda text, parser: type("S", (), {
-            "select": lambda s, sel: [type("E", (), {
-                "find": lambda s, tags: type("T", (), {"get_text": lambda strip=True: "Test Article"})(),
-                "find_all": lambda s, tag: [type("A", (), {"href": "/article1"})()] if tag == "a" else [],
-                "get_text": lambda strip=True: "Test Article"
-            })()],
-            "find": lambda s, tag: None
-        })())
+        raw_url = "https://example.com/article1?utm_source=feed&id=9#top"
+        monkeypatch.setattr("scripts.fetch_web.requests.get", lambda url, headers, timeout: FakeResponse("<html></html>"))
+        monkeypatch.setattr(
+            "scripts.fetch_web.BeautifulSoup",
+            lambda text, parser: FakeSoup(
+                articles=[FakeArticleElement("Test Article", "/article1?utm_source=feed&id=9#top", "summary text")]
+            ),
+        )
 
         entries = fetch_web("https://example.com", "TestSource", db_path=str(db_path))
-        assert len(entries) >= 0  # just verify no error
+
+        sess = get_session()
+        article = sess.get(Article, make_entry_hash(normalize_url(raw_url)))
+        sess.close()
+
+        assert len(entries) == 1
+        assert article is not None
+        assert article.url == raw_url
+        assert article.normalized_url == "https://example.com/article1?id=9"
 
     def test_fetch_web_skips_duplicate_url(self, monkeypatch, tmp_path):
-        from scripts.db import init, Article, get_session
+        from scripts.db import Article, get_session, init
         from scripts.fetch_web import fetch_web
 
         db_path = tmp_path / "test.db"
         init(str(db_path))
 
-        # Pre-insert
+        existing_raw_url = "https://example.com/?id=1&utm_source=old"
         sess = get_session()
-        sess.add(Article(url="https://example.com/duplicate", title="Old", source="Test", source_type="web"))
+        sess.add(Article(url=existing_raw_url, title="Old", source="Test", source_type="web"))
         sess.commit()
         sess.close()
 
@@ -124,18 +120,17 @@ class TestFetchWebDedup:
             def raise_for_status(self):
                 pass
 
-        monkeypatch.setattr("requests.get", lambda url, headers, timeout: FakeResponse())
-        monkeypatch.setattr("bs4.BeautifulSoup", lambda text, parser: FakeSoup())
+        monkeypatch.setattr("scripts.fetch_web.requests.get", lambda url, headers, timeout: FakeResponse())
+        monkeypatch.setattr("scripts.fetch_web.BeautifulSoup", lambda text, parser: FakeSoup())
 
-        entries = fetch_web("https://example.com", "TestSource", "article", db_path=str(db_path))
+        entries = fetch_web("https://example.com/?utm_medium=new&id=1#top", "TestSource", "article", db_path=str(db_path))
 
-        # Should not add new entry for existing URL
-        # (fallback path may still create, but dedup works for article path)
-        assert isinstance(entries, list)
+        assert entries == []
 
     def test_fetch_web_normalizes_relative_link_before_return_and_insert(self, monkeypatch, tmp_path):
         from scripts.db import Article, get_session, init
         from scripts.fetch_web import fetch_web
+        from scripts.url_normalize import make_entry_hash, normalize_url
 
         db_path = tmp_path / "test.db"
         init(str(db_path))
@@ -154,12 +149,36 @@ class TestFetchWebDedup:
         entries = fetch_web("https://example.com/news", "TestSource", db_path=str(db_path))
 
         sess = get_session()
-        stored_urls = [article.url for article in sess.query(Article).all()]
+        articles = sess.query(Article).all()
         sess.close()
 
         assert len(entries) == 1
         assert entries[0]["url"] == "https://example.com/article1"
-        assert stored_urls == ["https://example.com/article1"]
+        assert entries[0]["normalized_url"] == "https://example.com/article1"
+        assert entries[0]["entry_hash"] == make_entry_hash(normalize_url("https://example.com/article1"))
+        assert [article.url for article in articles] == ["https://example.com/article1"]
+
+    def test_fetch_web_returns_canonical_identity_fields_with_raw_absolute_url(self, monkeypatch, tmp_path):
+        from scripts.fetch_web import fetch_web
+        from scripts.url_normalize import make_entry_hash
+
+        monkeypatch.setattr(
+            "scripts.fetch_web.requests.get",
+            lambda url, headers, timeout: FakeResponse("<html></html>"),
+        )
+        monkeypatch.setattr(
+            "scripts.fetch_web.BeautifulSoup",
+            lambda text, parser: FakeSoup(
+                articles=[FakeArticleElement("Canonical Article", "/article?id=5&utm_medium=web#section", "summary text")]
+            ),
+        )
+
+        entries = fetch_web("https://example.com/news", "TestSource", db_path=str(tmp_path / "test.db"))
+
+        assert len(entries) == 1
+        assert entries[0]["url"] == "https://example.com/article?id=5&utm_medium=web#section"
+        assert entries[0]["normalized_url"] == "https://example.com/article?id=5"
+        assert entries[0]["entry_hash"] == make_entry_hash("https://example.com/article?id=5")
 
     def test_fetch_web_same_relative_path_on_different_sites_is_not_deduplicated(self, monkeypatch, tmp_path):
         from scripts.db import Article, get_session, init
