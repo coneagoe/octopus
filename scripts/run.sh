@@ -14,7 +14,9 @@ echo "[$(date)] 开始运行: $1" | tee -a "$LOG_FILE"
 
 # 加载 .env
 if [ -f "$REPO_DIR/.env" ]; then
-    export $(grep -v '^#' "$REPO_DIR/.env" | xargs)
+    set -a
+    . "$REPO_DIR/.env"
+    set +a
 fi
 
 # 设置 DB 路径（供 fetch 脚本去重用）
