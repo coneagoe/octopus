@@ -2,8 +2,10 @@
 
 import json
 import os
+import sys
 
 from scripts.db import Article, get_session, init, utcnow_naive
+from scripts.url_normalize import normalize_url, make_entry_hash
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'output')
 CACHE_FILES = {
@@ -22,7 +24,7 @@ def load_cache_json(path: str) -> list:
         return json.load(f)
 
 
-def migrate_entries(entries: list, db_path: str) -> int:
+def migrate_entries(entries: list, db_path: str, source_type: str = 'rss') -> int:
     """将条目列表迁移到 DB，返回新增条目数"""
     init(db_path)
     sess = get_session()
@@ -32,7 +34,15 @@ def migrate_entries(entries: list, db_path: str) -> int:
         url = entry.get('url', '')
         if not url:
             continue
-        existing = sess.get(Article, url)
+        
+        try:
+            normalized_url = normalize_url(url)
+            entry_hash = make_entry_hash(normalized_url)
+        except ValueError:
+            print(f"  -> 跳过非法 URL: {url}", file=sys.stderr)
+            continue
+        
+        existing = sess.get(Article, entry_hash)
         if existing:
             existing.last_seen = now
         else:
@@ -40,7 +50,7 @@ def migrate_entries(entries: list, db_path: str) -> int:
                 url=url,
                 title=entry.get('title', ''),
                 source=entry.get('source', ''),
-                source_type=entry.get('source_type', 'rss'),
+                source_type=entry.get('source_type', source_type),
                 published=entry.get('published', ''),
                 summary=entry.get('summary', ''),
                 first_fetched=now,
@@ -59,9 +69,7 @@ def migrate_from_output_dir(db_path: str) -> int:
     for source_type, filename in CACHE_FILES.items():
         path = os.path.join(OUTPUT_DIR, filename)
         entries = load_cache_json(path)
-        for entry in entries:
-            entry['source_type'] = source_type
-        count = migrate_entries(entries, db_path)
+        count = migrate_entries(entries, db_path, source_type)
         print(f"  [{source_type}] 迁移 {count} 条新条目（{len(entries)} 总条目）")
         total += count
     return total

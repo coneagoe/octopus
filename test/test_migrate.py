@@ -33,7 +33,7 @@ class TestMigrateFromJson:
         entries = [
             {"title": "A", "url": "https://a.com", "source": "src", "summary": "", "published": "", "source_type": "rss"}
         ]
-        count = migrate_entries(entries, str(db_path))
+        count = migrate_entries(entries, str(db_path), "rss")
         assert count == 1
 
         sess = get_session()
@@ -58,8 +58,29 @@ class TestMigrateFromJson:
         entries = [
             {"title": "A", "url": "https://a.com", "source": "src", "summary": "", "published": "", "source_type": "rss"}
         ]
-        count = migrate_entries(entries, str(db_path))
+        count = migrate_entries(entries, str(db_path), "rss")
         assert count == 0  # duplicate skipped
+
+    def test_migrate_entries_skips_malformed_urls(self, tmp_path, monkeypatch):
+        """Verify that malformed URLs are skipped with logging"""
+        from scripts.db import init, get_session, Article
+        from scripts.migrate import migrate_entries
+
+        db_path = tmp_path / "test.db"
+        init(str(db_path))
+
+        entries = [
+            {"title": "Valid", "url": "https://a.com", "source": "src", "summary": "", "published": "", "source_type": "rss"},
+            {"title": "Invalid", "url": "not-a-url", "source": "src", "summary": "", "published": "", "source_type": "rss"},
+        ]
+        count = migrate_entries(entries, str(db_path), "rss")
+        assert count == 1  # only valid URL inserted
+
+        sess = get_session()
+        articles = sess.query(Article).all()
+        assert len(articles) == 1
+        assert articles[0].url == "https://a.com"
+        sess.close()
 
     def test_migrate_from_output_dir_migrates_all_caches(self, tmp_path, monkeypatch):
         """Integration test: migrate all existing JSON caches to DB"""
@@ -96,7 +117,7 @@ class TestMigrateFromJson:
                 created_articles.append(self)
 
         class FakeSession:
-            def get(self, model, url):
+            def get(self, model, entry_hash):
                 return None
 
             def add(self, article):
@@ -117,7 +138,7 @@ class TestMigrateFromJson:
 
         count = migrate_module.migrate_entries([
             {"title": "A", "url": "https://a.com", "source": "src", "summary": "", "published": "", "source_type": "rss"}
-        ], "ignored.db")
+        ], "ignored.db", "rss")
 
         assert count == 1
         assert len(created_articles) == 1
