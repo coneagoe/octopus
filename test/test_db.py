@@ -1,5 +1,7 @@
 """Test cases for scripts/db.py"""
 
+from datetime import timezone
+
 import pytest
 import sys
 import os
@@ -58,3 +60,13 @@ class TestDbSession:
         assert r1.fetchone() is not None
         assert r2.fetchone() is not None
         sess.close()
+
+
+class TestTimestampHelpers:
+    def test_utcnow_naive_returns_naive_utc_datetime(self):
+        from scripts.db import utcnow_naive
+
+        value = utcnow_naive()
+
+        assert value.tzinfo is None
+        assert value.replace(tzinfo=timezone.utc).utcoffset().total_seconds() == 0

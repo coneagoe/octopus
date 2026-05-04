@@ -82,3 +82,40 @@ class TestMigrateFromJson:
 
         count = migrate_from_output_dir(str(db_path))
         assert count >= 1
+
+    def test_migrate_entries_writes_naive_utc_timestamps(self, tmp_path, monkeypatch):
+        import scripts.migrate as migrate_module
+        from scripts.migrate import migrate_entries
+
+        created_articles = []
+
+        class FakeArticle:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+                created_articles.append(self)
+
+        class FakeSession:
+            def get(self, model, url):
+                return None
+
+            def add(self, article):
+                self.article = article
+
+            def commit(self):
+                return None
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(migrate_module, "init", lambda db_path: None)
+        monkeypatch.setattr(migrate_module, "get_session", lambda: FakeSession())
+        monkeypatch.setattr(migrate_module, "Article", FakeArticle)
+
+        count = migrate_entries([
+            {"title": "A", "url": "https://a.com", "source": "src", "summary": "", "published": "", "source_type": "rss"}
+        ], str(tmp_path / "test.db"))
+
+        assert count == 1
+        assert len(created_articles) == 1
+        assert created_articles[0].first_fetched.tzinfo is None
+        assert created_articles[0].last_seen.tzinfo is None
