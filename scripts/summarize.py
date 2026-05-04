@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """摘要生成器 - 读取各采集器的缓存，生成 Markdown 笔记"""
 
-import os
-import sys
-import json
 import argparse
-import requests
+import json
+import os
 import re
+import sys
 from datetime import datetime
+
+import requests
 
 
 def strip_html(text):
@@ -32,7 +33,7 @@ def load_cache(category):
     """加载缓存文件"""
     cache_file = os.path.join(os.path.dirname(__file__), '..', 'output', f'{category}_cache.json')
     if os.path.exists(cache_file):
-        with open(cache_file, 'r', encoding='utf-8') as f:
+        with open(cache_file, encoding='utf-8') as f:
             return json.load(f)
     return []
 

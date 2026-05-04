@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """RSS 采集器"""
 
-import feedparser
-import sys
 import json
 import os
-from datetime import datetime, timedelta
+
+import feedparser
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
 
 
 def load_config():
     import yaml
-    with open(CONFIG_PATH, 'r') as f:
+    with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
 
 

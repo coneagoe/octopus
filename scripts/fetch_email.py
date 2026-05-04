@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """邮件采集器"""
 
-import os
-import sys
-import json
-import imaplib
 import email
+import imaplib
+import json
+import os
 from email.header import decode_header
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
@@ -13,7 +12,7 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
 
 def load_config():
     import yaml
-    with open(CONFIG_PATH, 'r') as f:
+    with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
 
 

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """网站抓取器"""
 
-import requests
-from bs4 import BeautifulSoup
 import json
 import os
-import sys
+
+import requests
+from bs4 import BeautifulSoup
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
 
 
 def load_config():
     import yaml
-    with open(CONFIG_PATH, 'r') as f:
+    with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
 
 
