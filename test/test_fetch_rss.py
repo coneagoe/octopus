@@ -1,4 +1,4 @@
-"""Test cases for fetch_rss.py"""
+"""Test cases for fetch_rss.py with deduplication"""
 
 import pytest
 import sys
@@ -7,31 +7,78 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 
-class TestFetchRss:
-    def test_fetch_rss_returns_entries_on_success(self, monkeypatch):
-        from scripts import fetch_rss
+class TestFetchRssDedup:
+    def test_fetch_rss_returns_only_new_entries(self, monkeypatch, tmp_path):
+        from scripts.db import init, Article, get_session
+        from scripts.fetch_rss import fetch_rss
 
+        db_path = tmp_path / "test.db"
+        init(str(db_path))
+
+        # Pre-insert existing URL
+        sess = get_session()
+        sess.add(Article(url="https://example.com/existing", title="Old", source="Test", source_type="rss"))
+        sess.commit()
+        sess.close()
+
+        # Mock feedparser to return one old + one new
         fake_feed = type("F", (), {
             "entries": [
-                {
-                    "title": "Test Article",
-                    "link": "https://example.com/article",
-                    "published": "2026-05-01",
-                    "summary": "This is a test summary"
-                }
+                {"title": "Existing", "link": "https://example.com/existing", "published": "2026-05-01", "summary": "old content"},
+                {"title": "New Article", "link": "https://example.com/new", "published": "2026-05-04", "summary": "new content"},
             ]
         })()
         monkeypatch.setattr("feedparser.parse", lambda url: fake_feed)
 
-        entries = fetch_rss.fetch_rss("https://example.com/rss", "TestSource")
-        assert len(entries) == 1
-        assert entries[0]["title"] == "Test Article"
-        assert entries[0]["source"] == "TestSource"
-        assert entries[0]["source_type"] == "rss"
-        assert entries[0]["url"] == "https://example.com/article"
+        entries = fetch_rss("https://example.com/rss", "TestSource", db_path=str(db_path))
 
-    def test_fetch_rss_returns_empty_on_error(self, monkeypatch):
-        from scripts import fetch_rss
+        assert len(entries) == 1
+        assert entries[0]["url"] == "https://example.com/new"
+        assert entries[0]["title"] == "New Article"
+
+    def test_fetch_rss_inserts_new_entries_into_db(self, monkeypatch, tmp_path):
+        from scripts.db import init, Article, get_session
+        from scripts.fetch_rss import fetch_rss
+
+        db_path = tmp_path / "test.db"
+        init(str(db_path))
+
+        fake_feed = type("F", (), {
+            "entries": [
+                {"title": "Brand New", "link": "https://example.com/brandnew", "published": "2026-05-04", "summary": "content"},
+            ]
+        })()
+        monkeypatch.setattr("feedparser.parse", lambda url: fake_feed)
+
+        fetch_rss("https://example.com/rss", "TestSource", db_path=str(db_path))
+
+        sess = get_session()
+        article = sess.get(Article, "https://example.com/brandnew")
+        assert article is not None
+        assert article.title == "Brand New"
+        assert article.source_type == "rss"
+        sess.close()
+
+    def test_fetch_rss_all_new_returns_all(self, monkeypatch, tmp_path):
+        from scripts.db import init, get_session
+        from scripts.fetch_rss import fetch_rss
+
+        db_path = tmp_path / "test.db"
+        init(str(db_path))
+
+        fake_feed = type("F", (), {
+            "entries": [
+                {"title": f"Article {i}", "link": f"https://example.com/{i}", "published": "2026-05-04", "summary": ""}
+                for i in range(5)
+            ]
+        })()
+        monkeypatch.setattr("feedparser.parse", lambda url: fake_feed)
+
+        entries = fetch_rss("https://example.com/rss", "TestSource", db_path=str(db_path))
+        assert len(entries) == 5
+
+    def test_fetch_rss_empty_on_exception(self, monkeypatch, tmp_path):
+        from scripts.fetch_rss import fetch_rss
         monkeypatch.setattr("feedparser.parse", lambda url: (_ for _ in ()).throw(Exception("network error")))
-        entries = fetch_rss.fetch_rss("https://example.com/rss", "TestSource")
+        entries = fetch_rss("https://example.com/rss", "TestSource", db_path=str(tmp_path / "test.db"))
         assert entries == []
