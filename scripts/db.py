@@ -1,13 +1,13 @@
 """数据库管理 — SQLite + SQLAlchemy ORM"""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, String, Text, DateTime
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
 def utcnow_naive():
-    return datetime.utcnow()
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Base(DeclarativeBase):
