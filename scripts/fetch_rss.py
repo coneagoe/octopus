@@ -3,7 +3,6 @@
 
 import json
 import os
-from datetime import datetime
 
 import feedparser
 
@@ -42,13 +41,16 @@ def fetch_rss(url, name, db_path=None):
                     continue
                 # 不存在：插入新记录
                 now = utcnow_naive()
+                title = str(entry.get('title') or '')
+                published = str(entry.get('published') or '')
+                summary = str(entry.get('summary') or '')[:500]
                 article = Article(
                     url=entry_url,
-                    title=entry.get('title', ''),
+                    title=title,
                     source=name,
                     source_type='rss',
-                    published=entry.get('published', ''),
-                    summary=entry.get('summary', '')[:500],
+                    published=published,
+                    summary=summary,
                     first_fetched=now,
                     last_seen=now,
                 )
@@ -62,10 +64,10 @@ def fetch_rss(url, name, db_path=None):
             new_entries.append({
                 'source': name,
                 'source_type': 'rss',
-                'title': entry.get('title', ''),
+                'title': str(entry.get('title') or ''),
                 'url': entry_url,
-                'published': entry.get('published', ''),
-                'summary': entry.get('summary', '')[:500],
+                'published': str(entry.get('published') or ''),
+                'summary': str(entry.get('summary') or '')[:500],
             })
 
         print(f"    -> 获取 {len(new_entries)} 条新条目")

@@ -3,7 +3,6 @@
 
 import json
 import os
-from datetime import datetime
 from urllib.parse import urljoin
 
 import requests
@@ -40,7 +39,8 @@ def fetch_web(url, name, selector='article', db_path=None):
             if not title_elem:
                 continue
 
-            article_url = urljoin(url, link_elem['href']) if link_elem else url
+            href = link_elem.get('href') if link_elem else None
+            article_url = urljoin(url, href) if isinstance(href, str) else url
 
             # 去重检查
             if db_path:

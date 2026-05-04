@@ -69,4 +69,6 @@ class TestTimestampHelpers:
         value = utcnow_naive()
 
         assert value.tzinfo is None
-        assert value.replace(tzinfo=timezone.utc).utcoffset().total_seconds() == 0
+        offset = value.replace(tzinfo=timezone.utc).utcoffset()
+        assert offset is not None
+        assert offset.total_seconds() == 0

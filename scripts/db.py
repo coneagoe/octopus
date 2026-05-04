@@ -2,8 +2,8 @@
 
 import os
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, Column, String, Text, DateTime
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy import create_engine, String, Text, DateTime
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
 def utcnow_naive():
@@ -18,23 +18,23 @@ class Article(Base):
     """文章记录表 — URL 唯一，用于去重"""
     __tablename__ = 'articles'
 
-    url = Column(String(2048), primary_key=True)
-    title = Column(String(1024), nullable=False)
-    source = Column(String(256), nullable=False)
-    source_type = Column(String(32))  # 'rss' / 'web' / 'feishu' / 'email'
-    published = Column(String(256), default='')
-    summary = Column(Text, default='')
-    first_fetched = Column(DateTime, default=utcnow_naive)
-    last_seen = Column(DateTime, default=utcnow_naive)
+    url: Mapped[str] = mapped_column(String(2048), primary_key=True)
+    title: Mapped[str] = mapped_column(String(1024), nullable=False)
+    source: Mapped[str] = mapped_column(String(256), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32))  # 'rss' / 'web' / 'feishu' / 'email'
+    published: Mapped[str] = mapped_column(String(256), default='')
+    summary: Mapped[str] = mapped_column(Text, default='')
+    first_fetched: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
 
 
 class DailyEntry(Base):
     """日报条目表 — 记录每天写了哪些文章"""
     __tablename__ = 'daily_entries'
 
-    date = Column(String(10), primary_key=True)  # YYYY-MM-DD
-    url = Column(String(2048), primary_key=True)
-    commentary = Column(Text, default='')
+    date: Mapped[str] = mapped_column(String(10), primary_key=True)  # YYYY-MM-DD
+    url: Mapped[str] = mapped_column(String(2048), primary_key=True)
+    commentary: Mapped[str] = mapped_column(Text, default='')
 
 
 _engine = None
@@ -56,4 +56,5 @@ def get_session():
         db_path = os.path.join(os.path.dirname(__file__), '..', 'output', 'octopus.db')
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         init(db_path)
+    assert _Session is not None
     return _Session()

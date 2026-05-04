@@ -83,11 +83,12 @@ class TestMigrateFromJson:
         count = migrate_from_output_dir(str(db_path))
         assert count >= 1
 
-    def test_migrate_entries_writes_naive_utc_timestamps(self, tmp_path, monkeypatch):
+    def test_migrate_entries_writes_naive_utc_timestamps(self, monkeypatch):
+        from datetime import datetime
         import scripts.migrate as migrate_module
-        from scripts.migrate import migrate_entries
 
         created_articles = []
+        expected_now = datetime(2026, 5, 4, 12, 0, 0)
 
         class FakeArticle:
             def __init__(self, **kwargs):
@@ -107,15 +108,20 @@ class TestMigrateFromJson:
             def close(self):
                 return None
 
-        monkeypatch.setattr(migrate_module, "init", lambda db_path: None)
-        monkeypatch.setattr(migrate_module, "get_session", lambda: FakeSession())
-        monkeypatch.setattr(migrate_module, "Article", FakeArticle)
+        fake_session = FakeSession()
 
-        count = migrate_entries([
+        monkeypatch.setattr(migrate_module, "init", lambda db_path: None)
+        monkeypatch.setattr(migrate_module, "get_session", lambda: fake_session)
+        monkeypatch.setattr(migrate_module, "Article", FakeArticle)
+        monkeypatch.setattr(migrate_module, "utcnow_naive", lambda: expected_now)
+
+        count = migrate_module.migrate_entries([
             {"title": "A", "url": "https://a.com", "source": "src", "summary": "", "published": "", "source_type": "rss"}
-        ], str(tmp_path / "test.db"))
+        ], "ignored.db")
 
         assert count == 1
         assert len(created_articles) == 1
+        assert created_articles[0].first_fetched == expected_now
+        assert created_articles[0].last_seen == expected_now
         assert created_articles[0].first_fetched.tzinfo is None
         assert created_articles[0].last_seen.tzinfo is None

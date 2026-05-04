@@ -2,7 +2,6 @@
 
 import json
 import os
-from datetime import datetime
 
 from scripts.db import init, get_session, Article, utcnow_naive
 
