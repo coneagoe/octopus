@@ -8,6 +8,7 @@ dependencies = [
     "requests",
     "pyyaml",
     "beautifulsoup4",
+    "sqlalchemy>=2.0.49",
 ]
 
 [lint]
