@@ -13,9 +13,13 @@ TRACKING_KEYS = {
 
 
 def _is_tracking_key(key: str) -> bool:
-    if key in TRACKING_KEYS:
+    # Be tolerant to non-string keys and treat keys case-insensitively
+    if not isinstance(key, str):
+        return False
+    k = key.lower()
+    if k in TRACKING_KEYS:
         return True
-    if key.startswith("utm_"):
+    if k.startswith("utm_"):
         return True
     return False
 
