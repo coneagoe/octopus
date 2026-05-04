@@ -359,7 +359,9 @@ class TestDbSession:
         entry_hash = make_entry_hash(normalized_url)
 
         assert sess.get(Article, "https://example.com/post?utm_source=rss") is None
-        assert sess.get(Article, entry_hash).url == "https://example.com/post?utm_source=rss"
+        found = sess.get(Article, entry_hash)
+        assert found is not None
+        assert found.url == "https://example.com/post?utm_source=rss"
         sess.close()
 
 
