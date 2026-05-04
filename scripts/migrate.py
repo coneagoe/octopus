@@ -2,9 +2,9 @@
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 
-from scripts.db import init, get_session, Article
+from scripts.db import init, get_session, Article, utcnow_naive
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'output')
 CACHE_FILES = {
@@ -28,7 +28,7 @@ def migrate_entries(entries: list, db_path: str) -> int:
     init(db_path)
     sess = get_session()
     count = 0
-    now = datetime.now(timezone.utc)
+    now = utcnow_naive()
     for entry in entries:
         url = entry.get('url', '')
         if not url:

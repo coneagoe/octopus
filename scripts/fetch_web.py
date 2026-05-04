@@ -3,7 +3,7 @@
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from urllib.parse import urljoin
 
 import requests
@@ -30,7 +30,6 @@ def fetch_web(url, name, selector='article', db_path=None):
 
         soup = BeautifulSoup(resp.text, 'html.parser')
         articles = []
-        now = datetime.now(timezone.utc)
 
         # 尝试提取文章列表
         for item in soup.select(selector)[:10]:
@@ -45,16 +44,17 @@ def fetch_web(url, name, selector='article', db_path=None):
 
             # 去重检查
             if db_path:
-                from scripts.db import init, get_session, Article
+                from scripts.db import init, get_session, Article, utcnow_naive
                 init(db_path)
                 sess = get_session()
                 existing = sess.get(Article, article_url)
                 if existing:
-                    existing.last_seen = now
+                    existing.last_seen = utcnow_naive()
                     sess.commit()
                     sess.close()
                     continue
 
+                now = utcnow_naive()
                 article = Article(
                     url=article_url,
                     title=title_elem.get_text(strip=True),

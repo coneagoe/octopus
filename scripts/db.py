@@ -6,6 +6,10 @@ from sqlalchemy import create_engine, Column, String, Text, DateTime
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
+def utcnow_naive():
+    return datetime.utcnow()
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -20,8 +24,8 @@ class Article(Base):
     source_type = Column(String(32))  # 'rss' / 'web' / 'feishu' / 'email'
     published = Column(String(256), default='')
     summary = Column(Text, default='')
-    first_fetched = Column(DateTime, default=datetime.utcnow)
-    last_seen = Column(DateTime, default=datetime.utcnow)
+    first_fetched = Column(DateTime, default=utcnow_naive)
+    last_seen = Column(DateTime, default=utcnow_naive)
 
 
 class DailyEntry(Base):
