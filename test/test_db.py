@@ -205,6 +205,163 @@ class TestDbSession:
         ]
         sess.close()
 
+    def test_init_skips_malformed_legacy_article_with_warning(self, tmp_path, capsys):
+        from scripts.db import init, get_session
+
+        db_path = tmp_path / "legacy-bad-article.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE articles (
+                url VARCHAR(2048) PRIMARY KEY,
+                title VARCHAR(1024) NOT NULL,
+                source VARCHAR(256) NOT NULL,
+                source_type VARCHAR(32),
+                published VARCHAR(256),
+                summary TEXT,
+                first_fetched DATETIME,
+                last_seen DATETIME
+            );
+
+            CREATE TABLE daily_entries (
+                date VARCHAR(10) NOT NULL,
+                url VARCHAR(2048) NOT NULL,
+                commentary TEXT,
+                PRIMARY KEY (date, url)
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO articles
+                (url, title, source, source_type, published, summary, first_fetched, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("not-a-url", "Broken", "Example", "rss", "", "", "2024-01-01 08:00:00", "2024-01-01 08:30:00"),
+        )
+        conn.execute(
+            """
+            INSERT INTO articles
+                (url, title, source, source_type, published, summary, first_fetched, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "https://example.com/good",
+                "Good",
+                "Example",
+                "rss",
+                "",
+                "",
+                "2024-01-02 09:00:00",
+                "2024-01-02 09:30:00",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        init(str(db_path))
+        captured = capsys.readouterr()
+
+        assert "跳过格式错误的旧文章 URL: not-a-url" in captured.err
+
+        sess = get_session()
+        from sqlalchemy import text
+
+        rows = sess.execute(text("SELECT url FROM articles ORDER BY url")).fetchall()
+        assert rows == [("https://example.com/good",)]
+        sess.close()
+
+    def test_init_skips_malformed_legacy_daily_entry_with_warning(self, tmp_path, capsys):
+        from scripts.db import init, get_session
+
+        db_path = tmp_path / "legacy-bad-daily.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE articles (
+                url VARCHAR(2048) PRIMARY KEY,
+                title VARCHAR(1024) NOT NULL,
+                source VARCHAR(256) NOT NULL,
+                source_type VARCHAR(32),
+                published VARCHAR(256),
+                summary TEXT,
+                first_fetched DATETIME,
+                last_seen DATETIME
+            );
+
+            CREATE TABLE daily_entries (
+                date VARCHAR(10) NOT NULL,
+                url VARCHAR(2048) NOT NULL,
+                commentary TEXT,
+                PRIMARY KEY (date, url)
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO articles
+                (url, title, source, source_type, published, summary, first_fetched, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "https://example.com/good",
+                "Good",
+                "Example",
+                "rss",
+                "",
+                "",
+                "2024-01-02 09:00:00",
+                "2024-01-02 09:30:00",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO daily_entries (date, url, commentary) VALUES (?, ?, ?)",
+            ("2024-01-02", "not-a-url", "broken commentary"),
+        )
+        conn.execute(
+            "INSERT INTO daily_entries (date, url, commentary) VALUES (?, ?, ?)",
+            ("2024-01-02", "https://example.com/good", "good commentary"),
+        )
+        conn.commit()
+        conn.close()
+
+        init(str(db_path))
+        captured = capsys.readouterr()
+
+        assert "跳过格式错误的旧日报 URL: not-a-url" in captured.err
+
+        sess = get_session()
+        from sqlalchemy import text
+
+        daily_rows = sess.execute(
+            text("SELECT date, commentary FROM daily_entries ORDER BY date, entry_hash")
+        ).fetchall()
+        assert daily_rows == [("2024-01-02", "good commentary")]
+        sess.close()
+
+    def test_get_session_requires_entry_hash_for_article_lookup(self, tmp_path):
+        from scripts.db import Article, get_session, init
+        from scripts.url_normalize import make_entry_hash, normalize_url
+
+        db_path = tmp_path / "session-get.db"
+        init(str(db_path))
+        sess = get_session()
+        article = Article(
+            url="https://example.com/post?utm_source=rss",
+            title="Title",
+            source="Example",
+            source_type="rss",
+        )
+        sess.add(article)
+        sess.commit()
+
+        normalized_url = normalize_url("https://example.com/post?utm_source=rss")
+        entry_hash = make_entry_hash(normalized_url)
+
+        assert sess.get(Article, "https://example.com/post?utm_source=rss") is None
+        assert sess.get(Article, entry_hash).url == "https://example.com/post?utm_source=rss"
+        sess.close()
+
 
 class TestTimestampHelpers:
     def test_utcnow_naive_returns_naive_utc_datetime(self):

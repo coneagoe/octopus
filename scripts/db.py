@@ -1,11 +1,12 @@
 """数据库管理 — SQLite + SQLAlchemy ORM"""
 
 import os
+import sys
 from datetime import datetime, timezone
 from typing import Dict, List, Set, Tuple
 
 from sqlalchemy import DateTime, String, Text, create_engine, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session as SASession, mapped_column, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from scripts.url_normalize import make_entry_hash, normalize_url
 
@@ -57,16 +58,6 @@ class DailyEntry(Base):
     commentary: Mapped[str] = mapped_column(Text, default='')
 
 
-class OctopusSession(SASession):
-    def get(self, entity, ident, **kwargs):
-        if entity is Article and isinstance(ident, str):
-            try:
-                ident = make_entry_hash(normalize_url(ident))
-            except ValueError:
-                pass
-        return super().get(entity, ident, **kwargs)
-
-
 _engine = None
 _Session = None
 
@@ -99,6 +90,10 @@ def _parse_sqlite_datetime(value):
         except ValueError:
             continue
     raise ValueError(f'Unsupported datetime format: {value}')
+
+
+def _warn_skipped_legacy_url(kind: str, url: str, error: ValueError):
+    print(f"警告：跳过格式错误的旧{kind} URL: {url} ({error})", file=sys.stderr)
 
 
 def _choose_canonical_row(existing: dict, candidate: dict) -> Tuple[dict, dict]:
@@ -144,7 +139,11 @@ def _load_legacy_articles(conn) -> List[dict]:
 
     merged_rows: Dict[str, dict] = {}
     for row in rows:
-        normalized_url = normalize_url(row['url'])
+        try:
+            normalized_url = normalize_url(row['url'])
+        except ValueError as error:
+            _warn_skipped_legacy_url('文章', row['url'], error)
+            continue
         entry_hash = make_entry_hash(normalized_url)
         candidate = {
             'entry_hash': entry_hash,
@@ -197,7 +196,11 @@ def _load_legacy_daily_entries(conn, canonical_urls: Dict[str, str]) -> List[dic
 
     merged_rows: Dict[Tuple[str, str], dict] = {}
     for row in rows:
-        normalized_url = normalize_url(row['url'])
+        try:
+            normalized_url = normalize_url(row['url'])
+        except ValueError as error:
+            _warn_skipped_legacy_url('日报', row['url'], error)
+            continue
         entry_hash = make_entry_hash(normalized_url)
         key = (row['date'], entry_hash)
         commentary = row['commentary'] or ''
@@ -316,7 +319,7 @@ def init(db_path: str):
     global _engine, _Session
     _engine = create_engine(f"sqlite:///{db_path}", echo=False)
     _upgrade_legacy_schema(_engine)
-    _Session = sessionmaker(bind=_engine, class_=OctopusSession)
+    _Session = sessionmaker(bind=_engine)
     Base.metadata.create_all(_engine)
 
 
