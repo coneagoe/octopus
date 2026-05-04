@@ -109,6 +109,27 @@ def generate_markdown(date, entries_by_source, api_key):
 """
         md += "\n"
 
+    # 知乎
+    zhihu_entries = entries_by_source.get('zhihu', [])
+    if zhihu_entries:
+        md += "## 知乎回答\n\n"
+        for entry in zhihu_entries:
+            total += 1
+            commentary = generate_commentary(
+                entry.get('title', ''),
+                entry.get('summary', ''),
+                entry.get('source', ''),
+                api_key
+            )
+            md += f"""### [{entry['title']}]({entry['url']})
+
+- 来源: {entry['source']}
+- 摘要: {strip_html(entry.get('summary', ''))[:200]}
+- 点评: {commentary}
+
+"""
+        md += "\n"
+
     # 网站
     web_entries = entries_by_source.get('web', [])
     if web_entries:
@@ -187,17 +208,20 @@ def main():
     print(f"[摘要生成] 生成日期: {args.date}")
 
     rss_entries = load_cache('rss')
+    zhihu_entries = load_cache('zhihu')
     web_entries = load_cache('web')
     feishu_entries = load_cache('feishu')
     email_entries = load_cache('email')
 
     print(f"  RSS: {len(rss_entries)} 条")
+    print(f"  知乎: {len(zhihu_entries)} 条")
     print(f"  网站: {len(web_entries)} 条")
     print(f"  飞书: {len(feishu_entries)} 条")
     print(f"  邮件: {len(email_entries)} 条")
 
     entries_by_source = {
         'rss': rss_entries,
+        'zhihu': zhihu_entries,
         'web': web_entries,
         'feishu': feishu_entries,
         'email': email_entries
