@@ -97,19 +97,32 @@ async def _fetch_page_content(url: str) -> str:
         )
         await page.route("**/analytics/**", lambda route: route.abort())
         try:
-            await page.goto(url, timeout=30000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(3000)
+            response = await page.goto(url, timeout=30000)
+            print(f"    -> 状态码: {response.status if response else 'None'}")
         except Exception as e:
             print(f"    -> 导航错误: {e}")
+            await browser.close()
+            return ""
+
+        # 等待 JS 渲染
+        await page.wait_for_timeout(5000)
+
+        # 滚动触发懒加载
+        for i in range(3):
+            try:
+                await page.evaluate(f"window.scrollTo(0, {i * 500})")
+                await page.wait_for_timeout(500)
+            except Exception:
+                break
+
+        try:
+            content = await page.content()
+            return content
+        except Exception as e:
+            print(f"    -> 获取内容错误: {e}")
             return ""
         finally:
             await browser.close()
-
-        try:
-            body = await page.query_selector("body")
-            return await body.inner_text()
-        except Exception:
-            return ""
 
 
 def fetch_zhihu_user(user_id: str, name: str, db_path: str = None) -> list:
