@@ -37,6 +37,30 @@ class TestFetchRssDedup:
         assert entries[0]["title"] == "New Article"
 
     def test_fetch_rss_inserts_new_entries_into_db(self, monkeypatch, tmp_path):
+        pass
+
+    def test_fetch_rss_inserts_naive_utc_timestamps(self, monkeypatch, tmp_path):
+        from scripts.db import Article, get_session, init
+        from scripts.fetch_rss import fetch_rss
+
+        db_path = tmp_path / "test.db"
+        init(str(db_path))
+
+        fake_feed = type("F", (), {
+            "entries": [
+                {"title": "Brand New", "link": "https://example.com/brandnew", "published": "2026-05-04", "summary": "content"},
+            ]
+        })()
+        monkeypatch.setattr("feedparser.parse", lambda url: fake_feed)
+
+        fetch_rss("https://example.com/rss", "TestSource", db_path=str(db_path))
+
+        sess = get_session()
+        article = sess.get(Article, "https://example.com/brandnew")
+        assert article.first_fetched.tzinfo is None
+        assert article.last_seen.tzinfo is None
+        sess.close()
+
         from scripts.db import init, Article, get_session
         from scripts.fetch_rss import fetch_rss
 

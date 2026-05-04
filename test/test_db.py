@@ -9,6 +9,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 
 class TestArticleModel:
+    def test_utcnow_naive_returns_naive_datetime(self):
+        from scripts.db import utcnow_naive
+
+        timestamp = utcnow_naive()
+
+        assert timestamp.tzinfo is None
+
     def test_article_tablename_is_articles(self):
         from scripts.db import Article
         assert Article.__tablename__ == 'articles'

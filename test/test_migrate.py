@@ -24,6 +24,27 @@ class TestMigrateFromJson:
         assert result == []
 
     def test_migrate_entries_inserts_all_into_db(self, tmp_path, monkeypatch):
+        pass
+
+    def test_migrate_entries_writes_naive_utc_timestamps(self, tmp_path):
+        from scripts.db import Article, get_session, init
+        from scripts.migrate import migrate_entries
+
+        db_path = tmp_path / "test.db"
+        init(str(db_path))
+
+        entries = [
+            {"title": "A", "url": "https://a.com", "source": "src", "summary": "", "published": "", "source_type": "rss"}
+        ]
+
+        migrate_entries(entries, str(db_path))
+
+        sess = get_session()
+        article = sess.get(Article, "https://a.com")
+        assert article.first_fetched.tzinfo is None
+        assert article.last_seen.tzinfo is None
+        sess.close()
+
         from scripts.db import init, get_session, Article
         from scripts.migrate import migrate_entries
 
