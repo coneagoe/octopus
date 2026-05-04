@@ -87,9 +87,10 @@ def fetch_web(url, name, selector='article', db_path=None):
             article_url = url
 
             if db_path:
-                from scripts.db import init, get_session, Article
+                from scripts.db import init, get_session, Article, utcnow_naive
                 init(db_path)
                 sess = get_session()
+                now = utcnow_naive()
                 existing = sess.get(Article, article_url)
                 if not existing:
                     article = Article(
