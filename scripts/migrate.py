@@ -2,9 +2,8 @@
 
 import json
 import os
-from datetime import datetime, timezone
 
-from scripts.db import init, get_session, Article
+from scripts.db import Article, get_session, init, utcnow_naive
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'output')
 CACHE_FILES = {
@@ -28,7 +27,6 @@ def migrate_entries(entries: list, db_path: str) -> int:
     init(db_path)
     sess = get_session()
     count = 0
-    from scripts.db import utcnow_naive
     now = utcnow_naive()
     for entry in entries:
         url = entry.get('url', '')
@@ -36,23 +34,20 @@ def migrate_entries(entries: list, db_path: str) -> int:
             continue
         existing = sess.get(Article, url)
         if existing:
-            # update last_seen if not duplicate insert
             existing.last_seen = now
-            sess.commit()
-            continue
-        article = Article(
-            url=url,
-            title=entry.get('title', '') or '',
-            source=entry.get('source', '') or '',
-            source_type=entry.get('source_type', 'rss'),
-            published=entry.get('published', '') or '',
-            summary=entry.get('summary', '') or '',
-            first_fetched=now,
-            last_seen=now,
-        )
-        sess.add(article)
-        count += 1
-    sess.commit()
+        else:
+            article = Article(
+                url=url,
+                title=entry.get('title', ''),
+                source=entry.get('source', ''),
+                source_type=entry.get('source_type', 'rss'),
+                published=entry.get('published', ''),
+                summary=entry.get('summary', ''),
+                first_fetched=now,
+                last_seen=now,
+            )
+            sess.add(article)
+            count += 1
     sess.commit()
     sess.close()
     return count

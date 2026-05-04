@@ -52,12 +52,19 @@ def fetch_email():
 
         # 搜索最新邮件
         status, messages = mail.search(None, 'ALL')
+        if status != 'OK' or not messages:
+            return []
         mail_ids = messages[0].split()[-20:]  # 最新20封
 
         entries = []
         for mail_id in mail_ids:
             status, msg_data = mail.fetch(mail_id, '(RFC822)')
-            msg = email.message_from_bytes(msg_data[0][1])
+            if status != 'OK' or not msg_data or not isinstance(msg_data[0], tuple):
+                continue
+            raw_msg = msg_data[0][1]
+            if not isinstance(raw_msg, bytes):
+                continue
+            msg = email.message_from_bytes(raw_msg)
 
             subject = decode_str(msg['Subject'])
             sender = decode_str(msg.get('From', ''))
@@ -73,10 +80,14 @@ def fetch_email():
                 for part in msg.walk():
                     ct = part.get_content_type()
                     if ct == 'text/plain':
-                        body = part.get_payload(decode=True).decode('utf-8', errors='replace')
-                        break
+                        payload = part.get_payload(decode=True)
+                        if isinstance(payload, bytes):
+                            body = payload.decode('utf-8', errors='replace')
+                            break
             else:
-                body = msg.get_payload(decode=True).decode('utf-8', errors='replace')
+                payload = msg.get_payload(decode=True)
+                if isinstance(payload, bytes):
+                    body = payload.decode('utf-8', errors='replace')
 
             entries.append({
                 'source': 'email',

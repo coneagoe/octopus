@@ -3,7 +3,6 @@
 
 import json
 import os
-from datetime import datetime, timezone
 from urllib.parse import urljoin
 
 import requests
@@ -14,6 +13,7 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
 
 def load_config():
     import yaml
+
     with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
 
@@ -30,7 +30,6 @@ def fetch_web(url, name, selector='article', db_path=None):
 
         soup = BeautifulSoup(resp.text, 'html.parser')
         articles = []
-        now = datetime.now(timezone.utc)
 
         # 尝试提取文章列表
         for item in soup.select(selector)[:10]:
@@ -41,20 +40,23 @@ def fetch_web(url, name, selector='article', db_path=None):
             if not title_elem:
                 continue
 
-            article_url = urljoin(url, link_elem['href']) if link_elem else url
+            href = link_elem.get('href') if link_elem else None
+            article_url = urljoin(url, href) if isinstance(href, str) else url
 
             # 去重检查
             if db_path:
-                from scripts.db import init, get_session, Article
+                from scripts.db import Article, get_session, init, utcnow_naive
+
                 init(db_path)
                 sess = get_session()
                 existing = sess.get(Article, article_url)
                 if existing:
-                    existing.last_seen = now
+                    existing.last_seen = utcnow_naive()
                     sess.commit()
                     sess.close()
                     continue
 
+                now = utcnow_naive()
                 article = Article(
                     url=article_url,
                     title=title_elem.get_text(strip=True),
@@ -87,9 +89,11 @@ def fetch_web(url, name, selector='article', db_path=None):
             article_url = url
 
             if db_path:
-                from scripts.db import init, get_session, Article
+                from scripts.db import Article, get_session, init, utcnow_naive
+
                 init(db_path)
                 sess = get_session()
+                now = utcnow_naive()
                 existing = sess.get(Article, article_url)
                 if not existing:
                     article = Article(
@@ -144,7 +148,7 @@ def main():
             source['url'],
             source.get('name', source['url']),
             source.get('selector', 'article'),
-            db_path=db_path
+            db_path=db_path,
         )
         all_entries.extend(entries)
 

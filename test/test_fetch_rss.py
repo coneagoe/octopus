@@ -37,31 +37,7 @@ class TestFetchRssDedup:
         assert entries[0]["title"] == "New Article"
 
     def test_fetch_rss_inserts_new_entries_into_db(self, monkeypatch, tmp_path):
-        pass
-
-    def test_fetch_rss_inserts_naive_utc_timestamps(self, monkeypatch, tmp_path):
         from scripts.db import Article, get_session, init
-        from scripts.fetch_rss import fetch_rss
-
-        db_path = tmp_path / "test.db"
-        init(str(db_path))
-
-        fake_feed = type("F", (), {
-            "entries": [
-                {"title": "Brand New", "link": "https://example.com/brandnew", "published": "2026-05-04", "summary": "content"},
-            ]
-        })()
-        monkeypatch.setattr("feedparser.parse", lambda url: fake_feed)
-
-        fetch_rss("https://example.com/rss", "TestSource", db_path=str(db_path))
-
-        sess = get_session()
-        article = sess.get(Article, "https://example.com/brandnew")
-        assert article.first_fetched.tzinfo is None
-        assert article.last_seen.tzinfo is None
-        sess.close()
-
-        from scripts.db import init, Article, get_session
         from scripts.fetch_rss import fetch_rss
 
         db_path = tmp_path / "test.db"
@@ -106,3 +82,44 @@ class TestFetchRssDedup:
         monkeypatch.setattr("feedparser.parse", lambda url: (_ for _ in ()).throw(Exception("network error")))
         entries = fetch_rss("https://example.com/rss", "TestSource", db_path=str(tmp_path / "test.db"))
         assert entries == []
+
+    def test_fetch_rss_inserts_naive_utc_timestamps(self, monkeypatch, tmp_path):
+        import scripts.db as db_module
+        from scripts.fetch_rss import fetch_rss
+
+        created_articles = []
+
+        class FakeArticle:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+                created_articles.append(self)
+
+        class FakeSession:
+            def get(self, model, url):
+                return None
+
+            def add(self, article):
+                self.article = article
+
+            def commit(self):
+                return None
+
+            def close(self):
+                return None
+
+        fake_feed = type("F", (), {
+            "entries": [
+                {"title": "Brand New", "link": "https://example.com/brandnew", "published": "2026-05-04", "summary": "content"},
+            ]
+        })()
+        monkeypatch.setattr("feedparser.parse", lambda url: fake_feed)
+        monkeypatch.setattr(db_module, "init", lambda db_path: None)
+        monkeypatch.setattr(db_module, "get_session", lambda: FakeSession())
+        monkeypatch.setattr(db_module, "Article", FakeArticle)
+
+        entries = fetch_rss("https://example.com/rss", "TestSource", db_path=str(tmp_path / "test.db"))
+
+        assert len(entries) == 1
+        assert len(created_articles) == 1
+        assert created_articles[0].first_fetched.tzinfo is None
+        assert created_articles[0].last_seen.tzinfo is None

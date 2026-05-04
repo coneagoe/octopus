@@ -3,7 +3,6 @@
 
 import json
 import os
-from datetime import datetime, timezone
 
 import feedparser
 
@@ -22,7 +21,6 @@ def fetch_rss(url, name, db_path=None):
     try:
         feed = feedparser.parse(url)
         new_entries = []
-        now = datetime.now(timezone.utc)
 
         for entry in feed.entries[:10]:  # 最新10条
             entry_url = entry.get('link', '')
@@ -31,24 +29,28 @@ def fetch_rss(url, name, db_path=None):
 
             # 如果提供了 db_path，进行去重检查
             if db_path:
-                from scripts.db import init, get_session, Article
+                from scripts.db import init, get_session, Article, utcnow_naive
                 init(db_path)
                 sess = get_session()
                 existing = sess.get(Article, entry_url)
                 if existing:
                     # 已存在：更新 last_seen 但不返回
-                    existing.last_seen = now
+                    existing.last_seen = utcnow_naive()
                     sess.commit()
                     sess.close()
                     continue
                 # 不存在：插入新记录
+                now = utcnow_naive()
+                title = str(entry.get('title') or '')
+                published = str(entry.get('published') or '')
+                summary = str(entry.get('summary') or '')[:500]
                 article = Article(
                     url=entry_url,
-                    title=entry.get('title', ''),
+                    title=title,
                     source=name,
                     source_type='rss',
-                    published=entry.get('published', ''),
-                    summary=entry.get('summary', '')[:500],
+                    published=published,
+                    summary=summary,
                     first_fetched=now,
                     last_seen=now,
                 )
@@ -62,10 +64,10 @@ def fetch_rss(url, name, db_path=None):
             new_entries.append({
                 'source': name,
                 'source_type': 'rss',
-                'title': entry.get('title', ''),
+                'title': str(entry.get('title') or ''),
                 'url': entry_url,
-                'published': entry.get('published', ''),
-                'summary': entry.get('summary', '')[:500],
+                'published': str(entry.get('published') or ''),
+                'summary': str(entry.get('summary') or '')[:500],
             })
 
         print(f"    -> 获取 {len(new_entries)} 条新条目")
