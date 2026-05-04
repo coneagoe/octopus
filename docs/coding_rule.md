@@ -28,6 +28,16 @@ def test_something(monkeypatch):
 - If you can use `monkeypatch.setattr` for an attribute/function, prefer it over `Mock()` objects
 - Only use `unittest.mock.Mock` / `unittest.mock.patch` when monkeypatch is too awkward (e.g. constant setup/teardown, complex spy scenarios)
 
+## Pre-commit Rule
+
+Before committing, **must run lint + test** locally:
+
+```bash
+uv run ruff check scripts/ && uv run pytest test/
+```
+
+No exceptions. Catch issues before they reach the repo.
+
 ## Other Test Conventions
 
 - Test file naming: `test_<script_name>.py` in `test/` directory
