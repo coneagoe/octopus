@@ -1,0 +1,29 @@
+[project]
+name = "octopus"
+version = "0.1.0"
+description = "信息采集与摘要生成工具"
+requires-python = ">=3.8"
+dependencies = [
+    "feedparser",
+    "requests",
+    "pyyaml",
+    "beautifulsoup4",
+]
+
+[lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+per-file-ignores = { "scripts/*" = ["F401"] }
+
+[tool.pyright]
+pythonVersion = "3.8"
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingTypeStubs = false
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.409",
+    "pytest>=8.3.5",
+    "ruff>=0.15.12",
+]
