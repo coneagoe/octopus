@@ -30,3 +30,8 @@ sources:
     password: ""
     folder: "INBOX"
     keywords: []
+
+  # 知乎用户回答
+  zhihu:
+    - user_id: "yang-lei-96-72"
+      name: "Deep Van"
