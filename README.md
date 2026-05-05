@@ -1,6 +1,6 @@
 # Octopus - 信息聚合系统
 
-每天自动采集 RSS、网站、飞书、邮件等来源，生成带摘要的每日笔记。
+每天自动采集 RSS、知乎、网站、飞书、邮件等来源，生成带摘要的每日笔记。
 
 ## 目录结构
 
@@ -9,10 +9,12 @@ octopus/
 ├── scripts/
 │   ├── run.sh              # 入口脚本（cron 调用）
 │   ├── fetch_rss.py        # RSS 采集
+│   ├── fetch_zhihu.py      # 知乎回答采集
 │   ├── fetch_web.py        # 网站抓取
 │   ├── fetch_feishu.py     # 飞书消息
 │   ├── fetch_email.py      # 邮件
 │   ├── summarize.py        # AI 摘要生成
+│   ├── playwright_setup.py # Playwright Chromium 检查与安装
 │   └── config.yaml         # 信息源配置
 ├── output/
 │   └── daily/              # 每日输出
@@ -28,6 +30,16 @@ octopus/
    - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`：飞书应用凭证（如需）
 
 2. 在 `scripts/config.yaml` 中配置要采集的信息源
+
+## 初始化
+
+安装 Python 依赖后，如需启用知乎抓取，请额外执行：
+
+```bash
+uv run python scripts/playwright_setup.py --install-if-missing
+```
+
+如果 Playwright Chromium 尚未安装，知乎抓取会输出清晰错误提示，并指向上面的 setup 命令；日常 `scripts/run.sh` 不会自动下载安装浏览器。
 
 ## 定时任务
 

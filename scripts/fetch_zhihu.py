@@ -6,12 +6,13 @@ import json
 import os
 import re
 from datetime import date
+from typing import Optional
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
 
 from scripts.db import Article, get_session, init, utcnow_naive
+from scripts.playwright_setup import is_chromium_ready
 from scripts.url_normalize import make_entry_hash, normalize_url
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
@@ -34,7 +35,9 @@ def _extract_answer_items(html: str, today: str) -> list:
         link = block.select_one('a[href*="/question/"]')
         if not link:
             continue
-        href = link.get('href', '')
+        href = link.get('href')
+        if not isinstance(href, str):
+            continue
         if '/answer/' not in href:
             continue
         answer_url = urljoin("https://www.zhihu.com", href)
@@ -72,6 +75,8 @@ def _extract_answer_items(html: str, today: str) -> list:
 
 async def _fetch_page_content(url: str) -> str:
     """用 Playwright 获取渲染后的页面 HTML"""
+    from playwright.async_api import async_playwright
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
@@ -125,8 +130,13 @@ async def _fetch_page_content(url: str) -> str:
             await browser.close()
 
 
-def fetch_zhihu_user(user_id: str, name: str, db_path: str = None) -> list:
+def fetch_zhihu_user(user_id: str, name: str, db_path: Optional[str] = None) -> list:
     """抓取指定知乎用户的当天回答，返回新增条目列表"""
+    ready, message = is_chromium_ready()
+    if not ready:
+        print(f"    -> {message}")
+        return []
+
     url = f"https://www.zhihu.com/people/{user_id}"
     print(f"  抓取知乎用户: {name} ({url})")
 
@@ -200,9 +210,11 @@ def main():
     all_entries = []
     for user in zhihu_users:
         user_id = user.get("user_id")
-        name = user.get("name", user_id)
-        if not user_id:
+        if not isinstance(user_id, str) or not user_id:
             continue
+        name = user.get("name")
+        if not isinstance(name, str) or not name:
+            name = user_id
         entries = fetch_zhihu_user(user_id, name, db_path=db_path)
         all_entries.extend(entries)
 

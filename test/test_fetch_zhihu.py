@@ -69,3 +69,45 @@ class TestExtractAnswerItems:
         """
         items = _extract_answer_items(fake_html, "2026-05-04")
         assert len(items) == 2
+
+
+class TestFetchZhihuRuntime:
+    def test_fetch_zhihu_user_returns_empty_list_when_browser_missing(self, monkeypatch):
+        from scripts import fetch_zhihu
+
+        monkeypatch.setattr(
+            fetch_zhihu,
+            "is_chromium_ready",
+            lambda: (
+                False,
+                "Chromium 浏览器未安装，请先执行：uv run python scripts/playwright_setup.py --install-if-missing",
+            ),
+        )
+
+        entries = fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
+
+        assert entries == []
+
+    def test_main_writes_empty_cache_when_browser_missing(self, monkeypatch, tmp_path):
+        import json
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+
+        monkeypatch.setattr(
+            fetch_zhihu,
+            "load_config",
+            lambda: {"sources": {"zhihu": [{"user_id": "demo-user", "name": "Demo"}]}},
+        )
+        monkeypatch.setattr(
+            fetch_zhihu,
+            "fetch_zhihu_user",
+            lambda user_id, name, db_path=None: [],
+        )
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+
+        fetch_zhihu.main()
+
+        cache_path = tmp_path / "output" / "zhihu_cache.json"
+        assert json.loads(cache_path.read_text(encoding="utf-8")) == []
