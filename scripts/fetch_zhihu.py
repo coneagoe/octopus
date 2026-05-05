@@ -18,13 +18,31 @@ from scripts.url_normalize import make_entry_hash, normalize_url
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
 
 
+class FetchZhihuError(RuntimeError):
+    """知乎抓取失败。"""
+
+
 def load_config():
     import yaml
     with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
 
 
-def _extract_answer_items(html: str, today: str) -> list:
+def _extract_item_date(text: str, today: str) -> Optional[str]:
+    date_match = re.search(r'(\d{4}-\d{2}-\d{2})', text)
+    if date_match:
+        return date_match.group(1)
+
+    if re.search(r'昨天', text):
+        return None
+
+    if re.search(r'(刚刚|今天|\d+\s*分钟前|\d+\s*小时前)', text):
+        return today
+
+    return None
+
+
+def _extract_answer_items(html: str, today: str, source_name: str = "zhihu") -> list:
     """从知乎主页 HTML 中提取当天的回答条目"""
     items = []
     soup = BeautifulSoup(html, 'html.parser')
@@ -42,23 +60,30 @@ def _extract_answer_items(html: str, today: str) -> list:
             continue
         answer_url = urljoin("https://www.zhihu.com", href)
 
-        # 提取时间：找 YYYY-MM-DD 格式
-        text = block.get_text()
-        date_match = re.search(r'(\d{4}-\d{2}-\d{2})', text)
-        if not date_match:
+        # 提取时间：仅使用时间节点，避免标题/摘要文本污染日期判断
+        time_elem = block.select_one('.AnswerItem-time')
+        if time_elem is None:
             continue
-        item_date = date_match.group(1)
+        item_date = _extract_item_date(time_elem.get_text(strip=True), today)
+        if item_date is None:
+            continue
         if item_date != today:
             continue
 
         # 提取标题
         title = link.get_text(strip=True)
 
-        # 提取摘要：取链接后面跟随的文本
-        summary = block.get_text(strip=True)
-        # 去掉时间部分和标题，得到正文摘要
-        summary = re.sub(r'\d{4}-\d{2}-\d{2}.*', '', summary)
-        summary = re.sub(r'^' + re.escape(title), '', summary)
+        summary_elem = block.select_one('.AnswerItem-summary') or block.find('p')
+        if summary_elem:
+            summary = summary_elem.get_text(strip=True)
+        else:
+            summary = block.get_text(strip=True)
+            summary = re.sub(r'^' + re.escape(title), '', summary)
+            summary = re.sub(
+                r'^(刚刚|今天(?:\s*\d{1,2}:\d{2})?|\d+\s*分钟前|\d+\s*小时前|\d{4}-\d{2}-\d{2}|昨天\s*\d{1,2}:\d{2})',
+                '',
+                summary,
+            )
         summary = summary[:500].strip()
 
         items.append({
@@ -66,7 +91,7 @@ def _extract_answer_items(html: str, today: str) -> list:
             "url": answer_url,
             "published": item_date,
             "summary": summary,
-            "source": "zhihu",
+            "source": source_name,
             "source_type": "zhihu",
         })
 
@@ -134,19 +159,17 @@ def fetch_zhihu_user(user_id: str, name: str, db_path: Optional[str] = None) -> 
     """抓取指定知乎用户的当天回答，返回新增条目列表"""
     ready, message = is_chromium_ready()
     if not ready:
-        print(f"    -> {message}")
-        return []
+        raise FetchZhihuError(message)
 
     url = f"https://www.zhihu.com/people/{user_id}"
     print(f"  抓取知乎用户: {name} ({url})")
 
     html = asyncio.run(_fetch_page_content(url))
     if not html:
-        print("    -> 获取页面内容失败")
-        return []
+        raise FetchZhihuError("获取页面内容失败")
 
     today = date.today().isoformat()
-    items = _extract_answer_items(html, today)
+    items = _extract_answer_items(html, today, source_name=name)
     print(f"    -> 当天({today})回答: {len(items)} 条")
 
     if db_path and items:
@@ -154,39 +177,40 @@ def fetch_zhihu_user(user_id: str, name: str, db_path: Optional[str] = None) -> 
         sess = get_session()
         now = utcnow_naive()
         new_items = []
+        try:
+            for item in items:
+                try:
+                    normalized = normalize_url(item["url"])
+                except ValueError:
+                    print(f"    -> 跳过非法URL: {item['url']}")
+                    continue
 
-        for item in items:
-            try:
-                normalized = normalize_url(item["url"])
-            except ValueError:
-                print(f"    -> 跳过非法URL: {item['url']}")
-                continue
+                entry_hash = make_entry_hash(normalized)
+                existing = sess.get(Article, entry_hash)
+                if existing:
+                    existing.last_seen = now
+                    sess.commit()
+                    continue
 
-            entry_hash = make_entry_hash(normalized)
-            existing = sess.get(Article, entry_hash)
-            if existing:
-                existing.last_seen = now
+                article = Article(
+                    entry_hash=entry_hash,
+                    normalized_url=normalized,
+                    url=item["url"],
+                    title=item["title"],
+                    author=name,
+                    source=name,
+                    source_type="zhihu",
+                    published=item["published"],
+                    summary=item["summary"],
+                    first_fetched=now,
+                    last_seen=now,
+                )
+                sess.add(article)
                 sess.commit()
-                continue
+                new_items.append(item)
+        finally:
+            sess.close()
 
-            article = Article(
-                entry_hash=entry_hash,
-                normalized_url=normalized,
-                url=item["url"],
-                title=item["title"],
-                author=name,
-                source=name,
-                source_type="zhihu",
-                published=item["published"],
-                summary=item["summary"],
-                first_fetched=now,
-                last_seen=now,
-            )
-            sess.add(article)
-            sess.commit()
-            new_items.append(item)
-
-        sess.close()
         print(f"    -> 新增条目: {len(new_items)} 条")
         return new_items
 
@@ -208,6 +232,7 @@ def main():
         db_path = os.path.join(os.path.dirname(__file__), "..", "output", "octopus.db")
 
     all_entries = []
+    had_failure = False
     for user in zhihu_users:
         user_id = user.get("user_id")
         if not isinstance(user_id, str) or not user_id:
@@ -215,7 +240,16 @@ def main():
         name = user.get("name")
         if not isinstance(name, str) or not name:
             name = user_id
-        entries = fetch_zhihu_user(user_id, name, db_path=db_path)
+        try:
+            entries = fetch_zhihu_user(user_id, name, db_path=db_path)
+        except FetchZhihuError as exc:
+            had_failure = True
+            print(f"  抓取知乎用户失败: {name} - {exc}")
+            continue
+        except Exception as exc:
+            had_failure = True
+            print(f"  抓取知乎用户异常: {name} - {exc}")
+            continue
         all_entries.extend(entries)
 
     cache_file = os.path.join(os.path.dirname(__file__), "..", "output", "zhihu_cache.json")
@@ -224,6 +258,8 @@ def main():
         json.dump(all_entries, f, ensure_ascii=False, indent=2)
 
     print(f"[知乎采集] 完成，共 {len(all_entries)} 条新条目")
+    if had_failure:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

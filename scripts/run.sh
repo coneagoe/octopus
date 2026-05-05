@@ -29,7 +29,9 @@ echo "[$(date)] 采集 RSS..." | tee -a "$LOG_FILE"
 uv run python "$SCRIPT_DIR/fetch_rss.py" >> "$LOG_FILE" 2>&1
 
 echo "[$(date)] 采集知乎..." | tee -a "$LOG_FILE"
-uv run python "$SCRIPT_DIR/fetch_zhihu.py" >> "$LOG_FILE" 2>&1
+if ! uv run python "$SCRIPT_DIR/fetch_zhihu.py" >> "$LOG_FILE" 2>&1; then
+    echo "[$(date)] 警告：知乎采集失败，继续执行后续流程" | tee -a "$LOG_FILE"
+fi
 
 echo "[$(date)] 采集网站..." | tee -a "$LOG_FILE"
 uv run python "$SCRIPT_DIR/fetch_web.py" >> "$LOG_FILE" 2>&1
