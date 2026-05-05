@@ -42,7 +42,7 @@ def _extract_item_date(text: str, today: str) -> Optional[str]:
     return None
 
 
-def _extract_answer_items(html: str, today: str, source_name: str = "zhihu") -> list:
+def _extract_answer_items(html: str, today: str, source_name: str = "") -> list:
     """从知乎主页 HTML 中提取当天的回答条目"""
     items = []
     soup = BeautifulSoup(html, 'html.parser')
@@ -76,15 +76,14 @@ def _extract_answer_items(html: str, today: str, source_name: str = "zhihu") -> 
         summary_elem = block.select_one('.AnswerItem-summary') or block.find('p')
         if summary_elem:
             summary = summary_elem.get_text(strip=True)
+            if len(summary) < 10:
+                summary = None
         else:
-            summary = block.get_text(strip=True)
-            summary = re.sub(r'^' + re.escape(title), '', summary)
-            summary = re.sub(
-                r'^(刚刚|今天(?:\s*\d{1,2}:\d{2})?|\d+\s*分钟前|\d+\s*小时前|\d{4}-\d{2}-\d{2}|昨天\s*\d{1,2}:\d{2})',
-                '',
-                summary,
-            )
-        summary = summary[:500].strip()
+            summary = None
+
+        if not summary:
+            # 实在拿不到摘要就用标题代替
+            summary = f"回答了问题：{title}"
 
         items.append({
             "title": title,
@@ -254,8 +253,10 @@ def main():
 
     cache_file = os.path.join(os.path.dirname(__file__), "..", "output", "zhihu_cache.json")
     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-    with open(cache_file, "w", encoding="utf-8") as f:
-        json.dump(all_entries, f, ensure_ascii=False, indent=2)
+    # 只有本次有新条目时才更新缓存；fetch 失败不覆盖已有缓存
+    if all_entries:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(all_entries, f, ensure_ascii=False, indent=2)
 
     print(f"[知乎采集] 完成，共 {len(all_entries)} 条新条目")
     if had_failure:
