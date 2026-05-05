@@ -76,7 +76,7 @@ def _extract_answer_items(html: str, today: str, source_name: str = "") -> list:
         summary_elem = block.select_one('.AnswerItem-summary') or block.find('p')
         if summary_elem:
             summary = summary_elem.get_text(strip=True)
-            if len(summary) < 10:
+            if not summary:
                 summary = None
         else:
             summary = None
@@ -253,10 +253,8 @@ def main():
 
     cache_file = os.path.join(os.path.dirname(__file__), "..", "output", "zhihu_cache.json")
     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-    # 只有本次有新条目时才更新缓存；fetch 失败不覆盖已有缓存
-    if all_entries:
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(all_entries, f, ensure_ascii=False, indent=2)
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(all_entries, f, ensure_ascii=False, indent=2)
 
     print(f"[知乎采集] 完成，共 {len(all_entries)} 条新条目")
     if had_failure:

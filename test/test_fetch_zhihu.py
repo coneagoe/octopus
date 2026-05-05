@@ -297,6 +297,31 @@ class TestFetchZhihuRuntime:
             }
         ]
 
+    def test_main_overwrites_stale_cache_with_empty_list_when_no_new_entries(self, monkeypatch, tmp_path):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        cache_dir = tmp_path / "output"
+        cache_dir.mkdir()
+        cache_path = cache_dir / "zhihu_cache.json"
+        cache_path.write_text(
+            json.dumps([{"title": "旧条目"}], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            fetch_zhihu,
+            "load_config",
+            lambda: {"sources": {"zhihu": [{"user_id": "demo-user", "name": "Demo"}]}},
+        )
+        monkeypatch.setattr(fetch_zhihu, "fetch_zhihu_user", lambda user_id, name, db_path=None: [])
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+
+        fetch_zhihu.main()
+
+        assert json.loads(cache_path.read_text(encoding="utf-8")) == []
+
     def test_fetch_zhihu_user_closes_session_when_db_write_fails(self, monkeypatch):
         from scripts import fetch_zhihu
 
