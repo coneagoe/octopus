@@ -24,30 +24,40 @@ export OCTOPUS_DB="$DB_PATH"
 # 设置 PYTHONPATH（使 scripts 模块可导入）
 export PYTHONPATH="$REPO_DIR"
 
+# 定位 uv（cron 环境下 PATH 可能不完整）
+UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+if [ -z "$UV_BIN" ] && [ -x "$HOME/.local/bin/uv" ]; then
+    UV_BIN="$HOME/.local/bin/uv"
+fi
+if [ -z "$UV_BIN" ]; then
+    echo "[$(date)] 错误：未找到 uv，请先安装 uv 或设置 UV_BIN" | tee -a "$LOG_FILE"
+    exit 1
+fi
+
 # 采集
 echo "[$(date)] 采集 RSS..." | tee -a "$LOG_FILE"
-uv run python "$SCRIPT_DIR/fetch_rss.py" >> "$LOG_FILE" 2>&1
+"$UV_BIN" run python "$SCRIPT_DIR/fetch_rss.py" >> "$LOG_FILE" 2>&1
 
 echo "[$(date)] 采集知乎..." | tee -a "$LOG_FILE"
-if ! uv run python "$SCRIPT_DIR/fetch_zhihu.py" >> "$LOG_FILE" 2>&1; then
+if ! "$UV_BIN" run python "$SCRIPT_DIR/fetch_zhihu.py" >> "$LOG_FILE" 2>&1; then
     echo "[$(date)] 警告：知乎采集失败，继续执行后续流程" | tee -a "$LOG_FILE"
 fi
 
 echo "[$(date)] 采集网站..." | tee -a "$LOG_FILE"
-uv run python "$SCRIPT_DIR/fetch_web.py" >> "$LOG_FILE" 2>&1
+"$UV_BIN" run python "$SCRIPT_DIR/fetch_web.py" >> "$LOG_FILE" 2>&1
 
 echo "[$(date)] 采集飞书..." | tee -a "$LOG_FILE"
-uv run python "$SCRIPT_DIR/fetch_feishu.py" >> "$LOG_FILE" 2>&1
+"$UV_BIN" run python "$SCRIPT_DIR/fetch_feishu.py" >> "$LOG_FILE" 2>&1
 
 echo "[$(date)] 采集邮件..." | tee -a "$LOG_FILE"
-uv run python "$SCRIPT_DIR/fetch_email.py" >> "$LOG_FILE" 2>&1
+"$UV_BIN" run python "$SCRIPT_DIR/fetch_email.py" >> "$LOG_FILE" 2>&1
 
 # 合并数据生成今日摘要
 TODAY=$(date '+%Y-%m-%d')
 OUTPUT_FILE="$OUTPUT_DIR/${TODAY}.md"
 
 echo "[$(date)] 生成摘要: $OUTPUT_FILE" | tee -a "$LOG_FILE"
-uv run python "$SCRIPT_DIR/summarize.py" --date "$TODAY" --output "$OUTPUT_FILE" >> "$LOG_FILE" 2>&1
+"$UV_BIN" run python "$SCRIPT_DIR/summarize.py" --date "$TODAY" --output "$OUTPUT_FILE" >> "$LOG_FILE" 2>&1
 
 # Git push
 cd "$REPO_DIR"
