@@ -204,6 +204,52 @@ class TestExtractAnswerItems:
         assert items == []
 
 
+class TestZhihuAuthDetection:
+    def test_page_requires_login_flags_login_page(self):
+        from scripts.fetch_zhihu import _page_requires_login
+
+        login_html = """
+        <html>
+            <body>
+                <a href="/signin">密码登录</a>
+                <button>登录</button>
+                <div>请先登录后继续访问</div>
+            </body>
+        </html>
+        """
+
+        assert _page_requires_login(login_html) is True
+
+    def test_page_requires_login_allows_profile_page(self):
+        from scripts.fetch_zhihu import _page_requires_login
+
+        profile_html = """
+        <html>
+            <body>
+                <div class="Profile-main">
+                    <div class="List-item">
+                        <a href="/question/123/answer/456">正常回答</a>
+                        <span class="AnswerItem-time">2026-05-04</span>
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+
+        assert _page_requires_login(profile_html) is False
+
+
+class TestZhihuCredentials:
+    def test_load_zhihu_credentials_raises_when_env_missing(self, monkeypatch):
+        from scripts.fetch_zhihu import _load_zhihu_credentials
+
+        monkeypatch.delenv("ZHIHU_USERNAME", raising=False)
+        monkeypatch.delenv("ZHIHU_PASSWORD", raising=False)
+
+        with pytest.raises(RuntimeError, match="ZHIHU_USERNAME|ZHIHU_PASSWORD"):
+            _load_zhihu_credentials()
+
+
 class TestFetchZhihuRuntime:
     def test_fetch_zhihu_user_raises_when_browser_missing(self, monkeypatch):
         from scripts import fetch_zhihu
@@ -321,6 +367,97 @@ class TestFetchZhihuRuntime:
         fetch_zhihu.main()
 
         assert json.loads(cache_path.read_text(encoding="utf-8")) == []
+
+    def test_main_preserves_existing_cache_when_all_users_fail(self, monkeypatch, tmp_path):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        cache_dir = tmp_path / "output"
+        cache_dir.mkdir()
+        cache_path = cache_dir / "zhihu_cache.json"
+        stale_cache = [{"title": "旧条目", "url": "https://www.zhihu.com/question/1/answer/1"}]
+        cache_path.write_text(json.dumps(stale_cache, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        monkeypatch.setattr(
+            fetch_zhihu,
+            "load_config",
+            lambda: {
+                "sources": {
+                    "zhihu": [
+                        {"user_id": "bad-user-1", "name": "Bad 1"},
+                        {"user_id": "bad-user-2", "name": "Bad 2"},
+                    ]
+                }
+            },
+        )
+        monkeypatch.setattr(
+            fetch_zhihu,
+            "fetch_zhihu_user",
+            lambda user_id, name, db_path=None: (_ for _ in ()).throw(
+                fetch_zhihu.FetchZhihuError("登录态失效")
+            ),
+        )
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+
+        with pytest.raises(SystemExit, match="1"):
+            fetch_zhihu.main()
+
+        assert json.loads(cache_path.read_text(encoding="utf-8")) == stale_cache
+
+    def test_fetch_zhihu_user_retries_with_login_after_auth_failure(self, monkeypatch, tmp_path):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+        monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
+
+        today = fetch_zhihu.date.today().isoformat()
+        call_log = []
+        page_html = [
+            """
+            <html>
+                <body>
+                    <a href="/signin">登录</a>
+                    <div>请先登录后继续访问</div>
+                </body>
+            </html>
+            """,
+            f"""
+            <html>
+                <body>
+                    <div class="List-item">
+                        <a href="/question/123/answer/456">登录后回答</a>
+                        <span class="AnswerItem-time">{today}</span>
+                        <p class="AnswerItem-summary">这是登录后抓到的回答</p>
+                    </div>
+                </body>
+            </html>
+            """,
+        ]
+
+        async def fake_fetch_page_content(url, storage_state=None):
+            call_log.append({"url": url, "storage_state": storage_state})
+            return page_html.pop(0)
+
+        monkeypatch.setattr(fetch_zhihu, "_fetch_page_content", fake_fetch_page_content)
+
+        items = fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
+
+        assert len(call_log) == 2
+        assert call_log[0]["storage_state"] is None
+        assert call_log[1]["storage_state"] is not None
+        assert items == [
+            {
+                "title": "登录后回答",
+                "url": "https://www.zhihu.com/question/123/answer/456",
+                "published": today,
+                "summary": "这是登录后抓到的回答",
+                "source": "Demo",
+                "source_type": "zhihu",
+            }
+        ]
 
     def test_fetch_zhihu_user_closes_session_when_db_write_fails(self, monkeypatch):
         from scripts import fetch_zhihu
