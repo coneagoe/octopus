@@ -6,7 +6,7 @@ import json
 import os
 import re
 from datetime import date
-from typing import Optional, Tuple
+from typing import Optional, Tuple, TypedDict
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -20,6 +20,12 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
 
 class FetchZhihuError(RuntimeError):
     """知乎抓取失败。"""
+
+
+class ZhihuPageContent(TypedDict):
+    status_code: Optional[int]
+    final_url: str
+    html: str
 
 
 def load_config():
@@ -126,19 +132,59 @@ def _page_requires_login(status_code: Optional[int], final_url: str, html: str) 
     if any(token in normalized_url for token in ("/signin", "/login", "/captcha")):
         return True
 
-    blocked_markers = [
-        "登录",
-        "注册",
+    auth_markers = (
+        "请先登录",
+        "请登录后",
+        "登录后继续",
+        "登录后可见",
+        "密码登录",
+        "扫码登录",
         "安全验证",
         "请完成验证",
-    ]
-    return (
-        "list-item" not in page_text
-        and any(marker in html for marker in blocked_markers)
+        "验证码",
+        "人机验证",
+        "访问受限",
+    )
+    content_markers = (
+        "list-item",
+        "profile-main",
+        "answeritem-time",
+        "answeritem-summary",
+        "/question/",
+    )
+    return any(marker in page_text for marker in auth_markers) and not any(
+        marker in page_text for marker in content_markers
     )
 
 
-async def _fetch_page_content(url: str, storage_state_path: Optional[str] = None) -> dict:
+def _coerce_page_content(page_result, fallback_url: str) -> ZhihuPageContent:
+    if isinstance(page_result, dict):
+        html = page_result.get("html", "")
+        final_url = page_result.get("final_url") or fallback_url
+        status_code = page_result.get("status_code")
+        if not isinstance(html, str):
+            html = ""
+        if not isinstance(final_url, str):
+            final_url = fallback_url
+        if not isinstance(status_code, (int, type(None))):
+            status_code = None
+        return {
+            "status_code": status_code,
+            "final_url": final_url,
+            "html": html,
+        }
+
+    if isinstance(page_result, str):
+        return {
+            "status_code": None,
+            "final_url": fallback_url,
+            "html": page_result,
+        }
+
+    raise FetchZhihuError("获取页面内容失败")
+
+
+async def _fetch_page_content(url: str, storage_state_path: Optional[str] = None) -> ZhihuPageContent:
     """用 Playwright 获取渲染后的页面内容"""
     from playwright.async_api import async_playwright
 
@@ -165,8 +211,20 @@ async def _fetch_page_content(url: str, storage_state_path: Optional[str] = None
         try:
             context = await browser.new_context(**context_kwargs)
             page = await context.new_page()
+            async def _abort(route):
+                await route.abort()
+
+            await page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,webp}", _abort)
+            await page.route("**/analytics/**", _abort)
             response = await page.goto(url, timeout=30000)
+            await page.wait_for_load_state("domcontentloaded")
             await page.wait_for_timeout(5000)
+            for offset in (0, 500, 1000):
+                try:
+                    await page.evaluate(f"window.scrollTo(0, {offset})")
+                    await page.wait_for_timeout(300)
+                except Exception:
+                    break
             html = await page.content()
             final_url = page.url
             return {
@@ -188,11 +246,9 @@ def fetch_zhihu_user(user_id: str, name: str, db_path: Optional[str] = None) -> 
     print(f"  抓取知乎用户: {name} ({url})")
 
     page_result = asyncio.run(_fetch_page_content(url))
-    if isinstance(page_result, dict):
-        html = page_result.get("html", "")
-    else:
-        html = page_result
-    if not html:
+    page_content = _coerce_page_content(page_result, url)
+    html = page_content["html"]
+    if not isinstance(html, str) or not html:
         raise FetchZhihuError("获取页面内容失败")
 
     today = date.today().isoformat()
