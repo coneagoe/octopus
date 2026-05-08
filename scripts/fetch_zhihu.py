@@ -266,7 +266,8 @@ async def _fetch_page_content(url: str, storage_state_path: Optional[str] = None
                     raise
                 print("  -> 检测到损坏的知乎登录态缓存，改用未登录会话重试")
                 try:
-                    os.remove(storage_state_path)
+                    if storage_state_path is not None:
+                        os.remove(storage_state_path)
                 except OSError:
                     pass
                 context_kwargs.pop("storage_state", None)

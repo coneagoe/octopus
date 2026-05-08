@@ -621,9 +621,9 @@ class TestFetchZhihuRuntime:
                 return False
 
         fake_async_api = types.ModuleType("playwright.async_api")
-        fake_async_api.async_playwright = lambda: FakePlaywrightSession()
+        fake_async_api.__dict__["async_playwright"] = lambda: FakePlaywrightSession()
         fake_playwright = types.ModuleType("playwright")
-        fake_playwright.async_api = fake_async_api
+        fake_playwright.__dict__["async_api"] = fake_async_api
         monkeypatch.setitem(sys.modules, "playwright", fake_playwright)
         monkeypatch.setitem(sys.modules, "playwright.async_api", fake_async_api)
 
