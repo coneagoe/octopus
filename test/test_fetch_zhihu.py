@@ -283,7 +283,7 @@ class TestFetchZhihuRuntime:
         with pytest.raises(fetch_zhihu.FetchZhihuError, match="Chromium 浏览器未安装"):
             fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
 
-    def test_main_writes_empty_cache_when_browser_missing(self, monkeypatch, tmp_path):
+    def test_main_leaves_cache_missing_when_browser_missing(self, monkeypatch, tmp_path):
         from scripts import fetch_zhihu
 
         fake_scripts_dir = tmp_path / "scripts"
@@ -307,7 +307,7 @@ class TestFetchZhihuRuntime:
             fetch_zhihu.main()
 
         cache_path = tmp_path / "output" / "zhihu_cache.json"
-        assert json.loads(cache_path.read_text(encoding="utf-8")) == []
+        assert not cache_path.exists()
 
     def test_main_keeps_partial_results_and_exits_nonzero_when_one_user_fails(self, monkeypatch, tmp_path):
         from scripts import fetch_zhihu
@@ -458,27 +458,30 @@ class TestFetchZhihuRuntime:
             """,
         ]
 
-        async def fake_fetch_page_content(url, storage_state=None):
-            call_log.append({"url": url, "storage_state": storage_state})
+        async def fake_fetch_page_content(url, storage_state_path=None):
+            call_log.append({"url": url, "storage_state_path": storage_state_path})
             if len(call_log) > 2:
                 raise AssertionError("fetch retried more than once")
             return page_html[len(call_log) - 1]
 
-        def fake_login_with_credentials(*args, **kwargs):
+        async def fake_login_and_save_state(*args, **kwargs):
             login_log.append({"args": args, "kwargs": kwargs})
             if len(login_log) > 1:
                 raise AssertionError("login retried more than once")
-            return storage_state_path
 
-        monkeypatch.setattr(fetch_zhihu, "_login_with_credentials", fake_login_with_credentials, raising=False)
+        monkeypatch.setattr(fetch_zhihu, "_login_and_save_state", fake_login_and_save_state)
 
         monkeypatch.setattr(fetch_zhihu, "_fetch_page_content", fake_fetch_page_content)
 
         items = fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
 
         assert len(call_log) == 2
-        assert call_log[0]["storage_state"] is None
-        assert os.fspath(call_log[1]["storage_state"]) == os.fspath(storage_state_path)
+        assert os.path.normpath(os.fspath(call_log[0]["storage_state_path"])) == os.path.normpath(
+            os.fspath(storage_state_path)
+        )
+        assert os.path.normpath(os.fspath(call_log[1]["storage_state_path"])) == os.path.normpath(
+            os.fspath(storage_state_path)
+        )
         assert len(login_log) == 1
         login_args = login_log[0]["args"]
         login_kwargs = login_log[0]["kwargs"]
@@ -487,11 +490,13 @@ class TestFetchZhihuRuntime:
         login_state_path = login_kwargs.get("storage_state_path")
         assert (
             any(
-                os.fspath(arg) == os.fspath(storage_state_path)
+                os.path.normpath(os.fspath(arg)) == os.path.normpath(os.fspath(storage_state_path))
                 for arg in login_args
                 if isinstance(arg, (str, os.PathLike))
             )
-            or os.fspath(login_state_path or "") == os.fspath(storage_state_path)
+            or os.path.normpath(os.fspath(login_state_path or "")) == os.path.normpath(
+                os.fspath(storage_state_path)
+            )
         )
         assert items == [
             {
@@ -519,7 +524,7 @@ class TestFetchZhihuRuntime:
 
         session = FakeSession()
 
-        async def fake_fetch_page_content(url):
+        async def fake_fetch_page_content(url, storage_state_path=None):
             return "<html></html>"
 
         monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
