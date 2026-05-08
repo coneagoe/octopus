@@ -1,6 +1,7 @@
 """Test cases for fetch_zhihu.py"""
 
 import json
+import inspect
 import os
 import sys
 
@@ -205,10 +206,16 @@ class TestExtractAnswerItems:
 
 
 class TestZhihuAuthDetection:
-    def test_page_requires_login_flags_login_page(self):
+    def test_page_requires_login_contract_marks_auth_blockers(self):
         from scripts.fetch_zhihu import _page_requires_login
 
-        login_html = """
+        assert list(inspect.signature(_page_requires_login).parameters) == [
+            "status_code",
+            "final_url",
+            "html",
+        ]
+
+        signin_html = """
         <html>
             <body>
                 <a href="/signin">密码登录</a>
@@ -217,11 +224,6 @@ class TestZhihuAuthDetection:
             </body>
         </html>
         """
-
-        assert _page_requires_login(login_html) is True
-
-    def test_page_requires_login_allows_profile_page(self):
-        from scripts.fetch_zhihu import _page_requires_login
 
         profile_html = """
         <html>
@@ -236,17 +238,32 @@ class TestZhihuAuthDetection:
         </html>
         """
 
-        assert _page_requires_login(profile_html) is False
+        assert _page_requires_login(
+            403,
+            "https://www.zhihu.com/people/demo",
+            profile_html,
+        ) is True
+        assert _page_requires_login(
+            200,
+            "https://www.zhihu.com/signin?next=%2Fpeople%2Fdemo",
+            signin_html,
+        ) is True
+        assert _page_requires_login(
+            200,
+            "https://www.zhihu.com/people/demo",
+            profile_html,
+        ) is False
 
 
 class TestZhihuCredentials:
     def test_load_zhihu_credentials_raises_when_env_missing(self, monkeypatch):
+        from scripts import fetch_zhihu
         from scripts.fetch_zhihu import _load_zhihu_credentials
 
         monkeypatch.delenv("ZHIHU_USERNAME", raising=False)
         monkeypatch.delenv("ZHIHU_PASSWORD", raising=False)
 
-        with pytest.raises(RuntimeError, match="ZHIHU_USERNAME|ZHIHU_PASSWORD"):
+        with pytest.raises(fetch_zhihu.FetchZhihuError, match="ZHIHU_USERNAME|ZHIHU_PASSWORD"):
             _load_zhihu_credentials()
 
 
@@ -412,9 +429,13 @@ class TestFetchZhihuRuntime:
         fake_scripts_dir.mkdir()
         monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
         monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
+        monkeypatch.setenv("ZHIHU_USERNAME", "demo-account")
+        monkeypatch.setenv("ZHIHU_PASSWORD", "demo-password")
 
         today = fetch_zhihu.date.today().isoformat()
         call_log = []
+        login_log = []
+        storage_state_path = tmp_path / "output" / "zhihu_storage_state.json"
         page_html = [
             """
             <html>
@@ -439,7 +460,17 @@ class TestFetchZhihuRuntime:
 
         async def fake_fetch_page_content(url, storage_state=None):
             call_log.append({"url": url, "storage_state": storage_state})
-            return page_html.pop(0)
+            if len(call_log) > 2:
+                raise AssertionError("fetch retried more than once")
+            return page_html[len(call_log) - 1]
+
+        def fake_login_with_credentials(*args, **kwargs):
+            login_log.append({"args": args, "kwargs": kwargs})
+            if len(login_log) > 1:
+                raise AssertionError("login retried more than once")
+            return storage_state_path
+
+        monkeypatch.setattr(fetch_zhihu, "_login_with_credentials", fake_login_with_credentials, raising=False)
 
         monkeypatch.setattr(fetch_zhihu, "_fetch_page_content", fake_fetch_page_content)
 
@@ -447,7 +478,21 @@ class TestFetchZhihuRuntime:
 
         assert len(call_log) == 2
         assert call_log[0]["storage_state"] is None
-        assert call_log[1]["storage_state"] is not None
+        assert os.fspath(call_log[1]["storage_state"]) == os.fspath(storage_state_path)
+        assert len(login_log) == 1
+        login_args = login_log[0]["args"]
+        login_kwargs = login_log[0]["kwargs"]
+        assert "demo-account" in login_args or login_kwargs.get("username") == "demo-account"
+        assert "demo-password" in login_args or login_kwargs.get("password") == "demo-password"
+        login_state_path = login_kwargs.get("storage_state_path")
+        assert (
+            any(
+                os.fspath(arg) == os.fspath(storage_state_path)
+                for arg in login_args
+                if isinstance(arg, (str, os.PathLike))
+            )
+            or os.fspath(login_state_path or "") == os.fspath(storage_state_path)
+        )
         assert items == [
             {
                 "title": "登录后回答",
