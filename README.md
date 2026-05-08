@@ -28,6 +28,7 @@ octopus/
 1. 复制 `.env.example` 为 `.env`，填入：
    - `GITHUB_PAT`：GitHub Personal Access Token
    - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`：飞书应用凭证（如需）
+   - `ZHIHU_USERNAME` / `ZHIHU_PASSWORD`：知乎登录凭证，用于首次登录和会话刷新
 
 2. 在 `scripts/config.yaml` 中配置要采集的信息源
 
@@ -40,6 +41,7 @@ uv run python scripts/playwright_setup.py --install-if-missing
 ```
 
 如果 Playwright Chromium 尚未安装，知乎抓取会输出清晰错误提示，并指向上面的 setup 命令；日常 `scripts/run.sh` 不会自动下载安装浏览器。
+知乎的 Playwright 登录状态会保存到 `output/zhihu_storage_state.json`，仅保留在本地，不会提交到 Git。状态过期或需要额外验证时，脚本会重试登录一次；若仍失败，则保留旧的 `output/zhihu_cache.json` 并记录错误原因。
 
 ## 定时任务
 

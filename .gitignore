@@ -7,3 +7,4 @@ build/
 logs/
 *.log
 .worktrees/
+output/zhihu_storage_state.json
