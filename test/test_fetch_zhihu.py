@@ -251,6 +251,11 @@ class TestZhihuAuthDetection:
         ) is True
         assert _page_requires_login(
             200,
+            "https://www.zhihu.com/account/unhuman?type=verify",
+            "<html><body>需要进一步验证</body></html>",
+        ) is True
+        assert _page_requires_login(
+            200,
             "https://www.zhihu.com/people/demo",
             profile_html,
         ) is False

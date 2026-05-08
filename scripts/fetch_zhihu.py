@@ -168,7 +168,10 @@ def _page_requires_login(status_code: Optional[int], final_url: str, html: str) 
     if status_code == 403:
         return True
 
-    if any(token in normalized_url for token in ("/signin", "/login", "/captcha")):
+    if any(
+        token in normalized_url
+        for token in ("/signin", "/login", "/captcha", "/account/unhuman")
+    ):
         return True
 
     auth_markers = (
