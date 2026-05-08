@@ -4,6 +4,7 @@ import json
 import inspect
 import os
 import sys
+import types
 
 import pytest
 
@@ -504,6 +505,159 @@ class TestFetchZhihuRuntime:
                 "url": "https://www.zhihu.com/question/123/answer/456",
                 "published": today,
                 "summary": "这是登录后抓到的回答",
+                "source": "Demo",
+                "source_type": "zhihu",
+            }
+        ]
+
+    def test_fetch_zhihu_user_recovers_from_invalid_storage_state_before_login_check(
+        self, monkeypatch, tmp_path
+    ):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+        monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
+        monkeypatch.setenv("ZHIHU_USERNAME", "demo-account")
+        monkeypatch.setenv("ZHIHU_PASSWORD", "demo-password")
+
+        storage_state_path = tmp_path / "output" / "zhihu_storage_state.json"
+        storage_state_path.parent.mkdir()
+        storage_state_path.write_text("{bad json", encoding="utf-8")
+
+        today = fetch_zhihu.date.today().isoformat()
+        login_log = []
+        new_context_calls = []
+
+        signin_html = """
+        <html>
+            <body>
+                <a href="/signin">登录</a>
+                <div>请先登录后继续访问</div>
+            </body>
+        </html>
+        """
+        profile_html = f"""
+        <html>
+            <body>
+                <div class="List-item">
+                    <a href="/question/123/answer/456">恢复后的回答</a>
+                    <span class="AnswerItem-time">{today}</span>
+                    <p class="AnswerItem-summary">这是恢复后的抓取结果</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        class FakePage:
+            def __init__(self, html, final_url, status_code):
+                self._html = html
+                self._url = final_url
+                self._status_code = status_code
+
+            async def route(self, pattern, handler):
+                return None
+
+            async def goto(self, url, timeout=30000):
+                return types.SimpleNamespace(status=self._status_code)
+
+            async def wait_for_load_state(self, state):
+                return None
+
+            async def wait_for_timeout(self, timeout_ms):
+                return None
+
+            async def evaluate(self, script):
+                return None
+
+            async def content(self):
+                return self._html
+
+            @property
+            def url(self):
+                return self._url
+
+        class FakeContext:
+            def __init__(self, page):
+                self._page = page
+
+            async def new_page(self):
+                return self._page
+
+        class FakeBrowser:
+            async def new_context(self, **kwargs):
+                new_context_calls.append(kwargs.copy())
+                state_path = kwargs.get("storage_state")
+                if state_path:
+                    state_text = storage_state_path.read_text(encoding="utf-8")
+                    if state_text == "{bad json":
+                        raise RuntimeError("Error reading storage state from file")
+                    page = FakePage(
+                        profile_html,
+                        "https://www.zhihu.com/people/demo-user",
+                        200,
+                    )
+                else:
+                    page = FakePage(
+                        signin_html,
+                        "https://www.zhihu.com/signin?next=%2Fpeople%2Fdemo-user",
+                        200,
+                    )
+                return FakeContext(page)
+
+            async def close(self):
+                return None
+
+        class FakeChromium:
+            async def launch(self, **kwargs):
+                return FakeBrowser()
+
+        class FakePlaywrightSession:
+            async def __aenter__(self):
+                return types.SimpleNamespace(chromium=FakeChromium())
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        fake_async_api = types.ModuleType("playwright.async_api")
+        fake_async_api.async_playwright = lambda: FakePlaywrightSession()
+        fake_playwright = types.ModuleType("playwright")
+        fake_playwright.async_api = fake_async_api
+        monkeypatch.setitem(sys.modules, "playwright", fake_playwright)
+        monkeypatch.setitem(sys.modules, "playwright.async_api", fake_async_api)
+
+        async def fake_login_and_save_state(username, password, storage_state_path):
+            login_log.append(
+                {
+                    "username": username,
+                    "password": password,
+                    "storage_state_path": storage_state_path,
+                }
+            )
+            os.makedirs(os.path.dirname(storage_state_path), exist_ok=True)
+            with open(storage_state_path, "w", encoding="utf-8") as state_file:
+                state_file.write('{"cookies": [], "origins": []}')
+
+        monkeypatch.setattr(fetch_zhihu, "_login_and_save_state", fake_login_and_save_state)
+
+        items = fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
+
+        assert len(login_log) == 1
+        assert len(new_context_calls) == 3
+        assert os.path.normpath(os.fspath(new_context_calls[0]["storage_state"])) == os.path.normpath(
+            os.fspath(storage_state_path)
+        )
+        assert "storage_state" not in new_context_calls[1]
+        assert os.path.normpath(os.fspath(new_context_calls[2]["storage_state"])) == os.path.normpath(
+            os.fspath(storage_state_path)
+        )
+        assert items == [
+            {
+                "title": "恢复后的回答",
+                "url": "https://www.zhihu.com/question/123/answer/456",
+                "published": today,
+                "summary": "这是恢复后的抓取结果",
                 "source": "Demo",
                 "source_type": "zhihu",
             }

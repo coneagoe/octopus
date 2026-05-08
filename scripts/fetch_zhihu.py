@@ -223,6 +223,16 @@ def _coerce_page_content(page_result, fallback_url: str) -> ZhihuPageContent:
     raise FetchZhihuError("获取页面内容失败")
 
 
+def _is_invalid_storage_state_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "storage state" not in message:
+        return False
+    return any(
+        token in message
+        for token in ("error reading", "invalid", "malformed", "json", "unexpected token")
+    )
+
+
 async def _fetch_page_content(url: str, storage_state_path: Optional[str] = None) -> ZhihuPageContent:
     """用 Playwright 获取渲染后的页面内容"""
     from playwright.async_api import async_playwright
@@ -245,10 +255,22 @@ async def _fetch_page_content(url: str, storage_state_path: Optional[str] = None
             ),
                 "locale": "zh-CN",
         }
-        if storage_state_path and os.path.exists(storage_state_path):
+        has_saved_storage_state = bool(storage_state_path and os.path.exists(storage_state_path))
+        if has_saved_storage_state:
             context_kwargs["storage_state"] = storage_state_path
         try:
-            context = await browser.new_context(**context_kwargs)
+            try:
+                context = await browser.new_context(**context_kwargs)
+            except Exception as exc:
+                if not has_saved_storage_state or not _is_invalid_storage_state_error(exc):
+                    raise
+                print("  -> 检测到损坏的知乎登录态缓存，改用未登录会话重试")
+                try:
+                    os.remove(storage_state_path)
+                except OSError:
+                    pass
+                context_kwargs.pop("storage_state", None)
+                context = await browser.new_context(**context_kwargs)
             page = await context.new_page()
             async def _abort(route):
                 await route.abort()
