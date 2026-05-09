@@ -62,8 +62,30 @@ echo "[$(date)] 生成摘要: $OUTPUT_FILE" | tee -a "$LOG_FILE"
 # Git push
 cd "$REPO_DIR"
 echo "[$(date)] Git push..." | tee -a "$LOG_FILE"
+
+if [ -z "${GITHUB_PAT:-}" ]; then
+    echo "[$(date)] 错误：缺少 GITHUB_PAT，无法执行 Git push" | tee -a "$LOG_FILE"
+    exit 1
+fi
+
+GIT_ASKPASS_SCRIPT="$SCRIPT_DIR/git_askpass.sh"
+if [ ! -x "$GIT_ASKPASS_SCRIPT" ]; then
+    echo "[$(date)] 错误：缺少可执行的 Git 认证脚本: $GIT_ASKPASS_SCRIPT" | tee -a "$LOG_FILE"
+    exit 1
+fi
+
+REMOTE_URL="$(git remote get-url origin)"
+case "$REMOTE_URL" in
+    https://*)
+        ;;
+    *)
+        echo "[$(date)] 错误：origin 远程地址必须为 HTTPS 才能使用 GITHUB_PAT" | tee -a "$LOG_FILE"
+        exit 1
+        ;;
+esac
+
 git add output/daily/
 git commit -m "Daily update: $TODAY" || echo "Nothing to commit"
-git push origin main
+GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$GIT_ASKPASS_SCRIPT" git push origin main
 
 echo "[$(date)] 完成!" | tee -a "$LOG_FILE"
