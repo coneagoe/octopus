@@ -7,15 +7,24 @@ OUTPUT_DIR="$REPO_DIR/output/daily"
 DB_PATH="$REPO_DIR/output/octopus.db"
 LOG_FILE="$REPO_DIR/logs/$(basename "$0" .sh)_$(date '+%Y%m%d_%H%M%S').log"
 
-mkdir -p "$(dirname "$LOG_FILE")"
-mkdir -p "$OUTPUT_DIR"
+emit_error() {
+    local message="$1"
+    local log_dir
+    log_dir="$(dirname "$LOG_FILE")"
+
+    if [ -d "$log_dir" ] && [ -w "$log_dir" ]; then
+        echo "[$(date)] 错误：$message" | tee -a "$LOG_FILE"
+    else
+        echo "[$(date)] 错误：$message"
+    fi
+}
 
 require_file() {
     local path="$1"
     local message="$2"
 
     if [ ! -f "$path" ]; then
-        echo "[$(date)] 错误：$message" | tee -a "$LOG_FILE"
+        emit_error "$message"
         exit 1
     fi
 }
@@ -24,16 +33,19 @@ require_dir_writable() {
     local path="$1"
     local message="$2"
 
-    mkdir -p "$path"
+    if ! mkdir -p "$path" 2>/dev/null; then
+        emit_error "$message"
+        exit 1
+    fi
     if [ ! -w "$path" ]; then
-        echo "[$(date)] 错误：$message" | tee -a "$LOG_FILE"
+        emit_error "$message"
         exit 1
     fi
 }
 
 require_file "$REPO_DIR/.env" "未找到 .env 文件"
 if [ ! -d "$REPO_DIR/.git" ]; then
-    echo "[$(date)] 错误：当前目录缺少 .git，无法执行 Git 提交流程" | tee -a "$LOG_FILE"
+    emit_error "当前目录缺少 .git，无法执行 Git 提交流程"
     exit 1
 fi
 

@@ -13,6 +13,113 @@ def _write_executable(path, content):
 
 
 class TestRunSh:
+    def test_run_sh_reports_logs_create_failure_without_tee_noise(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        scripts_dir = repo_dir / "scripts"
+        bin_dir = tmp_path / "bin"
+        scripts_dir.mkdir(parents=True)
+        bin_dir.mkdir()
+        (repo_dir / ".git").mkdir()
+        (repo_dir / ".env").write_text(
+            "MINIMAX_API_KEY=test-key\nGITHUB_PAT=test-pat\n",
+            encoding="utf-8",
+        )
+        (repo_dir / "logs").write_text("not-a-directory", encoding="utf-8")
+
+        source_run_sh = Path(__file__).resolve().parents[1] / "scripts" / "run.sh"
+        source_askpass = Path(__file__).resolve().parents[1] / "scripts" / "git_askpass.sh"
+
+        run_sh = scripts_dir / "run.sh"
+        run_sh.write_text(source_run_sh.read_text(encoding="utf-8"), encoding="utf-8")
+        run_sh.chmod(run_sh.stat().st_mode | stat.S_IEXEC)
+
+        askpass_sh = scripts_dir / "git_askpass.sh"
+        askpass_sh.write_text(source_askpass.read_text(encoding="utf-8"), encoding="utf-8")
+        askpass_sh.chmod(askpass_sh.stat().st_mode | stat.S_IEXEC)
+
+        _write_executable(
+            bin_dir / "uv",
+            """#!/bin/sh
+            exit 0
+            """,
+        )
+        _write_executable(
+            bin_dir / "git",
+            """#!/bin/sh
+            exit 0
+            """,
+        )
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env['PATH']}"
+
+        result = subprocess.run(
+            ["bash", str(run_sh), "morning"],
+            cwd=repo_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 1
+        assert "错误：logs 目录不可写" in result.stdout
+        assert "tee:" not in result.stderr
+        assert "cannot create directory" not in result.stderr
+        assert "Permission denied" not in result.stderr
+
+    def test_run_sh_reports_output_create_failure_with_custom_message(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        scripts_dir = repo_dir / "scripts"
+        bin_dir = tmp_path / "bin"
+        scripts_dir.mkdir(parents=True)
+        bin_dir.mkdir()
+        (repo_dir / ".git").mkdir()
+        (repo_dir / ".env").write_text(
+            "MINIMAX_API_KEY=test-key\nGITHUB_PAT=test-pat\n",
+            encoding="utf-8",
+        )
+        (repo_dir / "logs").mkdir()
+        (repo_dir / "output").write_text("not-a-directory", encoding="utf-8")
+
+        source_run_sh = Path(__file__).resolve().parents[1] / "scripts" / "run.sh"
+        source_askpass = Path(__file__).resolve().parents[1] / "scripts" / "git_askpass.sh"
+
+        run_sh = scripts_dir / "run.sh"
+        run_sh.write_text(source_run_sh.read_text(encoding="utf-8"), encoding="utf-8")
+        run_sh.chmod(run_sh.stat().st_mode | stat.S_IEXEC)
+
+        askpass_sh = scripts_dir / "git_askpass.sh"
+        askpass_sh.write_text(source_askpass.read_text(encoding="utf-8"), encoding="utf-8")
+        askpass_sh.chmod(askpass_sh.stat().st_mode | stat.S_IEXEC)
+
+        _write_executable(
+            bin_dir / "uv",
+            """#!/bin/sh
+            exit 0
+            """,
+        )
+        _write_executable(
+            bin_dir / "git",
+            """#!/bin/sh
+            exit 0
+            """,
+        )
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env['PATH']}"
+
+        result = subprocess.run(
+            ["bash", str(run_sh), "morning"],
+            cwd=repo_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 1
+        assert "错误：output 目录不可写" in result.stdout
+        assert "cannot create directory" not in result.stderr
+
     def test_run_sh_exits_when_dotenv_missing(self, tmp_path):
         repo_dir = tmp_path / "repo"
         scripts_dir = repo_dir / "scripts"
