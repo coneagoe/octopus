@@ -1,0 +1,15 @@
+# Runtime state — lives on host via volume mount, not needed in build context
+.git
+.env
+output/
+logs/
+
+# Dev artifacts
+.worktrees/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.pyright/

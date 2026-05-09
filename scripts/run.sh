@@ -7,16 +7,63 @@ OUTPUT_DIR="$REPO_DIR/output/daily"
 DB_PATH="$REPO_DIR/output/octopus.db"
 LOG_FILE="$REPO_DIR/logs/$(basename "$0" .sh)_$(date '+%Y%m%d_%H%M%S').log"
 
-mkdir -p "$(dirname "$LOG_FILE")"
-mkdir -p "$OUTPUT_DIR"
+emit_error() {
+    local message="$1"
+    local log_dir
+    log_dir="$(dirname "$LOG_FILE")"
+
+    if [ -d "$log_dir" ] && [ -w "$log_dir" ]; then
+        echo "[$(date)] 错误：$message" | tee -a "$LOG_FILE"
+    else
+        echo "[$(date)] 错误：$message"
+    fi
+}
+
+require_file() {
+    local path="$1"
+    local message="$2"
+
+    if [ ! -f "$path" ]; then
+        emit_error "$message"
+        exit 1
+    fi
+}
+
+require_dir_writable() {
+    local path="$1"
+    local message="$2"
+
+    if ! mkdir -p "$path" 2>/dev/null; then
+        emit_error "$message"
+        exit 1
+    fi
+    if [ ! -w "$path" ]; then
+        emit_error "$message"
+        exit 1
+    fi
+}
+
+require_file "$REPO_DIR/.env" "未找到 .env 文件"
+if [ ! -d "$REPO_DIR/.git" ]; then
+    emit_error "当前目录缺少 .git，无法执行 Git 提交流程"
+    exit 1
+fi
+
+require_dir_writable "$REPO_DIR/logs" "logs 目录不可写"
+require_dir_writable "$REPO_DIR/output" "output 目录不可写"
+require_dir_writable "$OUTPUT_DIR" "output/daily 目录不可写"
 
 echo "[$(date)] 开始运行: $1" | tee -a "$LOG_FILE"
 
 # 加载 .env
-if [ -f "$REPO_DIR/.env" ]; then
-    set -a
-    . "$REPO_DIR/.env"
-    set +a
+set -a
+. "$REPO_DIR/.env"
+set +a
+
+# 提前校验 GITHUB_PAT，避免整个流水线跑完后才发现无法推送
+if [ -z "${GITHUB_PAT:-}" ]; then
+    emit_error "缺少 GITHUB_PAT，无法执行 Git push"
+    exit 1
 fi
 
 # 设置 DB 路径（供 fetch 脚本去重用）
@@ -62,8 +109,25 @@ echo "[$(date)] 生成摘要: $OUTPUT_FILE" | tee -a "$LOG_FILE"
 # Git push
 cd "$REPO_DIR"
 echo "[$(date)] Git push..." | tee -a "$LOG_FILE"
+
+GIT_ASKPASS_SCRIPT="$SCRIPT_DIR/git_askpass.sh"
+if [ ! -x "$GIT_ASKPASS_SCRIPT" ]; then
+    echo "[$(date)] 错误：缺少可执行的 Git 认证脚本: $GIT_ASKPASS_SCRIPT" | tee -a "$LOG_FILE"
+    exit 1
+fi
+
+REMOTE_URL="$(git remote get-url origin)"
+case "$REMOTE_URL" in
+    https://*)
+        ;;
+    *)
+        echo "[$(date)] 错误：origin 远程地址必须为 HTTPS 才能使用 GITHUB_PAT" | tee -a "$LOG_FILE"
+        exit 1
+        ;;
+esac
+
 git add output/daily/
 git commit -m "Daily update: $TODAY" || echo "Nothing to commit"
-git push origin main
+GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$GIT_ASKPASS_SCRIPT" git push origin main
 
 echo "[$(date)] 完成!" | tee -a "$LOG_FILE"
