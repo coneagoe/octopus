@@ -45,11 +45,53 @@ uv run python scripts/playwright_setup.py --install-if-missing
 
 ## 定时任务
 
+### 方式 A：直接运行（无 Docker）
+
 ```bash
 # 每天早 8 点和晚 8 点运行
 0 8 * * * /home/admin/octopus/scripts/run.sh morning >> /home/admin/octopus/logs/morning.log 2>&1
 0 20 * * * /home/admin/octopus/scripts/run.sh evening >> /home/admin/octopus/logs/evening.log 2>&1
 ```
+
+### 方式 B：使用 Docker 运行（推荐）
+
+Docker 封装了所有 Python 依赖和 Playwright Chromium，环境更一致，换机时只需迁移仓库、`.env` 和 cron 配置。
+
+**首次构建镜像（仅需一次，更新依赖后重新构建）：**
+
+```bash
+cd /home/admin/octopus
+docker build -t octopus:latest .
+```
+
+**cron 配置：**
+
+```bash
+# 每天早 8 点和晚 8 点运行（Docker 模式）
+0 8 * * * docker run --rm --env-file /home/admin/octopus/.env -v /home/admin/octopus:/app -w /app --user "$(id -u):$(id -g)" octopus:latest bash scripts/run.sh morning >> /home/admin/octopus/logs/morning.log 2>&1
+0 20 * * * docker run --rm --env-file /home/admin/octopus/.env -v /home/admin/octopus:/app -w /app --user "$(id -u):$(id -g)" octopus:latest bash scripts/run.sh evening >> /home/admin/octopus/logs/evening.log 2>&1
+```
+
+> `--user "$(id -u):$(id -g)"` 使容器以宿主用户身份写文件，避免 `output/` 和 `logs/` 产生 root 属主文件。
+> cron 中无法展开 `$(id -u)`，建议提前查好 UID/GID（`id -u && id -g`）后直接填入数字，例如 `--user 1000:1000`。
+
+**手动验证一次运行：**
+
+```bash
+docker run --rm \
+  --env-file /home/admin/octopus/.env \
+  -v /home/admin/octopus:/app \
+  -w /app \
+  --user "$(id -u):$(id -g)" \
+  octopus:latest bash scripts/run.sh morning
+```
+
+**换机迁移步骤：**
+
+1. 在新机器上安装 Docker
+2. `git clone` 仓库并配置 `.env`
+3. 执行 `docker build -t octopus:latest .` 重新构建镜像
+4. 设置 cron（参照上方配置）
 
 ## 信息源配置说明
 
