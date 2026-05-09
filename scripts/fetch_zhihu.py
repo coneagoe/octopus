@@ -6,7 +6,7 @@ import json
 import os
 import re
 from datetime import date
-from typing import Optional
+from typing import Optional, Tuple, TypedDict
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -22,10 +22,74 @@ class FetchZhihuError(RuntimeError):
     """知乎抓取失败。"""
 
 
+class ZhihuPageContent(TypedDict):
+    status_code: Optional[int]
+    final_url: str
+    html: str
+
+
 def load_config():
     import yaml
     with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
+
+
+def _load_zhihu_credentials() -> Tuple[str, str]:
+    username = os.environ.get("ZHIHU_USERNAME", "").strip()
+    password = os.environ.get("ZHIHU_PASSWORD", "").strip()
+    if not username:
+        raise FetchZhihuError("缺少 ZHIHU_USERNAME，无法自动登录知乎")
+    if not password:
+        raise FetchZhihuError("缺少 ZHIHU_PASSWORD，无法自动登录知乎")
+    return username, password
+
+
+def _get_storage_state_path() -> str:
+    return os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "output",
+        "zhihu_storage_state.json",
+    )
+
+
+async def _login_and_save_state(username: str, password: str, storage_state_path: str) -> None:
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        )
+        try:
+            context = await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                locale="zh-CN",
+            )
+            page = await context.new_page()
+            await page.goto("https://www.zhihu.com/signin", timeout=30000)
+            await page.get_by_text("密码登录").click()
+            await page.locator("input[name='username']").fill(username)
+            await page.locator("input[type='password']").fill(password)
+            await page.get_by_role("button", name="登录").click()
+            await page.wait_for_load_state("networkidle")
+
+            if any(token in page.url for token in ("/signin", "/captcha", "/account/unhuman")):
+                raise FetchZhihuError("知乎登录未完成，可能需要人工处理验证")
+
+            os.makedirs(os.path.dirname(storage_state_path), exist_ok=True)
+            await context.storage_state(path=storage_state_path)
+        finally:
+            await browser.close()
 
 
 def _extract_item_date(text: str, today: str) -> Optional[str]:
@@ -97,8 +161,83 @@ def _extract_answer_items(html: str, today: str, source_name: str = "") -> list:
     return items
 
 
-async def _fetch_page_content(url: str) -> str:
-    """用 Playwright 获取渲染后的页面 HTML"""
+def _page_requires_login(status_code: Optional[int], final_url: str, html: str) -> bool:
+    normalized_url = (final_url or "").lower()
+    page_text = html.lower()
+
+    if status_code == 403:
+        return True
+
+    if any(
+        token in normalized_url
+        for token in ("/signin", "/login", "/captcha", "/account/unhuman")
+    ):
+        return True
+
+    auth_markers = (
+        "请先登录",
+        "请登录后",
+        "登录后继续",
+        "登录后可见",
+        "密码登录",
+        "扫码登录",
+        "安全验证",
+        "请完成验证",
+        "验证码",
+        "人机验证",
+        "访问受限",
+    )
+    content_markers = (
+        "list-item",
+        "profile-main",
+        "answeritem-time",
+        "answeritem-summary",
+        "/question/",
+    )
+    return any(marker in page_text for marker in auth_markers) and not any(
+        marker in page_text for marker in content_markers
+    )
+
+
+def _coerce_page_content(page_result, fallback_url: str) -> ZhihuPageContent:
+    if isinstance(page_result, dict):
+        html = page_result.get("html", "")
+        final_url = page_result.get("final_url") or fallback_url
+        status_code = page_result.get("status_code")
+        if not isinstance(html, str):
+            html = ""
+        if not isinstance(final_url, str):
+            final_url = fallback_url
+        if not isinstance(status_code, (int, type(None))):
+            status_code = None
+        return {
+            "status_code": status_code,
+            "final_url": final_url,
+            "html": html,
+        }
+
+    if isinstance(page_result, str):
+        return {
+            "status_code": None,
+            "final_url": fallback_url,
+            "html": page_result,
+        }
+
+    raise FetchZhihuError("获取页面内容失败")
+
+
+def _is_invalid_storage_state_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "storage state" not in message:
+        return False
+    return any(
+        token in message
+        for token in ("error reading", "invalid", "malformed", "json", "unexpected token")
+    )
+
+
+async def _fetch_page_content(url: str, storage_state_path: Optional[str] = None) -> ZhihuPageContent:
+    """用 Playwright 获取渲染后的页面内容"""
     from playwright.async_api import async_playwright
 
     async with async_playwright() as p:
@@ -110,46 +249,54 @@ async def _fetch_page_content(url: str) -> str:
                 "--disable-dev-shm-usage",
             ]
         )
-        context = await browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=(
+        context_kwargs = {
+            "viewport": {"width": 1920, "height": 1080},
+            "user_agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/120.0.0.0 Safari/537.36"
             ),
-            locale="zh-CN",
-        )
-        page = await context.new_page()
-        await page.route(
-            "**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,webp}",
-            lambda route: route.abort()
-        )
-        await page.route("**/analytics/**", lambda route: route.abort())
+                "locale": "zh-CN",
+        }
+        has_saved_storage_state = bool(storage_state_path and os.path.exists(storage_state_path))
+        if has_saved_storage_state:
+            context_kwargs["storage_state"] = storage_state_path
         try:
-            response = await page.goto(url, timeout=30000)
-            print(f"    -> 状态码: {response.status if response else 'None'}")
-        except Exception as e:
-            print(f"    -> 导航错误: {e}")
-            await browser.close()
-            return ""
-
-        # 等待 JS 渲染
-        await page.wait_for_timeout(5000)
-
-        # 滚动触发懒加载
-        for i in range(3):
             try:
-                await page.evaluate(f"window.scrollTo(0, {i * 500})")
-                await page.wait_for_timeout(500)
-            except Exception:
-                break
+                context = await browser.new_context(**context_kwargs)
+            except Exception as exc:
+                if not has_saved_storage_state or not _is_invalid_storage_state_error(exc):
+                    raise
+                print("  -> 检测到损坏的知乎登录态缓存，改用未登录会话重试")
+                try:
+                    if storage_state_path is not None:
+                        os.remove(storage_state_path)
+                except OSError:
+                    pass
+                context_kwargs.pop("storage_state", None)
+                context = await browser.new_context(**context_kwargs)
+            page = await context.new_page()
+            async def _abort(route):
+                await route.abort()
 
-        try:
-            content = await page.content()
-            return content
-        except Exception as e:
-            print(f"    -> 获取内容错误: {e}")
-            return ""
+            await page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,webp}", _abort)
+            await page.route("**/analytics/**", _abort)
+            response = await page.goto(url, timeout=30000)
+            await page.wait_for_load_state("domcontentloaded")
+            await page.wait_for_timeout(5000)
+            for offset in (0, 500, 1000):
+                try:
+                    await page.evaluate(f"window.scrollTo(0, {offset})")
+                    await page.wait_for_timeout(300)
+                except Exception:
+                    break
+            html = await page.content()
+            final_url = page.url
+            return {
+                "status_code": response.status if response else None,
+                "final_url": final_url,
+                "html": html,
+            }
         finally:
             await browser.close()
 
@@ -163,8 +310,21 @@ def fetch_zhihu_user(user_id: str, name: str, db_path: Optional[str] = None) -> 
     url = f"https://www.zhihu.com/people/{user_id}"
     print(f"  抓取知乎用户: {name} ({url})")
 
-    html = asyncio.run(_fetch_page_content(url))
-    if not html:
+    storage_state_path = _get_storage_state_path()
+    page_result = asyncio.run(_fetch_page_content(url, storage_state_path=storage_state_path))
+    page_content = _coerce_page_content(page_result, url)
+    html = page_content["html"]
+
+    if _page_requires_login(page_content["status_code"], page_content["final_url"], html):
+        username, password = _load_zhihu_credentials()
+        asyncio.run(_login_and_save_state(username, password, storage_state_path))
+        page_result = asyncio.run(_fetch_page_content(url, storage_state_path=storage_state_path))
+        page_content = _coerce_page_content(page_result, url)
+        html = page_content["html"]
+        if _page_requires_login(page_content["status_code"], page_content["final_url"], html):
+            raise FetchZhihuError("知乎登录后仍无法访问用户主页")
+
+    if not isinstance(html, str) or not html:
         raise FetchZhihuError("获取页面内容失败")
 
     today = date.today().isoformat()
@@ -232,6 +392,7 @@ def main():
 
     all_entries = []
     had_failure = False
+    had_success = False
     for user in zhihu_users:
         user_id = user.get("user_id")
         if not isinstance(user_id, str) or not user_id:
@@ -249,12 +410,16 @@ def main():
             had_failure = True
             print(f"  抓取知乎用户异常: {name} - {exc}")
             continue
+        had_success = True
         all_entries.extend(entries)
 
     cache_file = os.path.join(os.path.dirname(__file__), "..", "output", "zhihu_cache.json")
-    os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-    with open(cache_file, "w", encoding="utf-8") as f:
-        json.dump(all_entries, f, ensure_ascii=False, indent=2)
+    if had_success:
+        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(all_entries, f, ensure_ascii=False, indent=2)
+    else:
+        print("  -> 本轮知乎抓取全部失败，保留旧缓存")
 
     print(f"[知乎采集] 完成，共 {len(all_entries)} 条新条目")
     if had_failure:
