@@ -111,6 +111,7 @@ class TestRunSh:
         )
 
         env = os.environ.copy()
+        env.pop("GITHUB_PAT", None)
         env["PATH"] = f"{bin_dir}:{env['PATH']}"
 
         result = subprocess.run(
