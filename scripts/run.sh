@@ -10,14 +10,43 @@ LOG_FILE="$REPO_DIR/logs/$(basename "$0" .sh)_$(date '+%Y%m%d_%H%M%S').log"
 mkdir -p "$(dirname "$LOG_FILE")"
 mkdir -p "$OUTPUT_DIR"
 
+require_file() {
+    local path="$1"
+    local message="$2"
+
+    if [ ! -f "$path" ]; then
+        echo "[$(date)] 错误：$message" | tee -a "$LOG_FILE"
+        exit 1
+    fi
+}
+
+require_dir_writable() {
+    local path="$1"
+    local message="$2"
+
+    mkdir -p "$path"
+    if [ ! -w "$path" ]; then
+        echo "[$(date)] 错误：$message" | tee -a "$LOG_FILE"
+        exit 1
+    fi
+}
+
+require_file "$REPO_DIR/.env" "未找到 .env 文件"
+if [ ! -d "$REPO_DIR/.git" ]; then
+    echo "[$(date)] 错误：当前目录缺少 .git，无法执行 Git 提交流程" | tee -a "$LOG_FILE"
+    exit 1
+fi
+
+require_dir_writable "$REPO_DIR/logs" "logs 目录不可写"
+require_dir_writable "$REPO_DIR/output" "output 目录不可写"
+require_dir_writable "$OUTPUT_DIR" "output/daily 目录不可写"
+
 echo "[$(date)] 开始运行: $1" | tee -a "$LOG_FILE"
 
 # 加载 .env
-if [ -f "$REPO_DIR/.env" ]; then
-    set -a
-    . "$REPO_DIR/.env"
-    set +a
-fi
+set -a
+. "$REPO_DIR/.env"
+set +a
 
 # 设置 DB 路径（供 fetch 脚本去重用）
 export OCTOPUS_DB="$DB_PATH"
