@@ -53,6 +53,46 @@ def _get_storage_state_path() -> str:
     )
 
 
+def _parse_cookie_header(header: str) -> list:
+    """把 'name1=val1; name2=val2' 格式的 cookie 请求头解析为 Playwright cookie 列表"""
+    import time
+    cookies = []
+    for part in header.split(";"):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        cookies.append({
+            "name": name.strip(),
+            "value": value.strip(),
+            "domain": ".zhihu.com",
+            "path": "/",
+            "expires": int(time.time()) + 86400 * 30,
+            "httpOnly": False,
+            "secure": True,
+            "sameSite": "None",
+        })
+    return cookies
+
+
+def _sync_storage_state_from_env(storage_state_path: str) -> bool:
+    """
+    若环境变量 ZHIHU_COOKIES 已设置，则将其解析并写入 storage state 文件。
+    返回 True 表示写入成功，False 表示环境变量未设置。
+    """
+    cookie_header = os.environ.get("ZHIHU_COOKIES", "").strip()
+    if not cookie_header:
+        return False
+    cookies = _parse_cookie_header(cookie_header)
+    if not cookies:
+        return False
+    state = {"cookies": cookies, "origins": []}
+    os.makedirs(os.path.dirname(storage_state_path), exist_ok=True)
+    with open(storage_state_path, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+    return True
+
+
 async def _login_and_save_state(username: str, password: str, storage_state_path: str) -> None:
     from playwright.async_api import async_playwright
 
@@ -80,8 +120,16 @@ async def _login_and_save_state(username: str, password: str, storage_state_path
             await page.get_by_text("密码登录").click()
             await page.locator("input[name='username']").fill(username)
             await page.locator("input[type='password']").fill(password)
-            await page.get_by_role("button", name="登录").click()
-            await page.wait_for_load_state("networkidle")
+            await page.get_by_role("button", name="登录", exact=True).click()
+            try:
+                await page.wait_for_url(
+                    lambda url: not any(
+                        t in url for t in ("/signin", "/captcha", "/account/unhuman")
+                    ),
+                    timeout=15000,
+                )
+            except Exception:
+                pass  # 超时或验证码，下面再判断 URL
 
             if any(token in page.url for token in ("/signin", "/captcha", "/account/unhuman")):
                 raise FetchZhihuError("知乎登录未完成，可能需要人工处理验证")
@@ -281,7 +329,7 @@ async def _fetch_page_content(url: str, storage_state_path: Optional[str] = None
 
             await page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,webp}", _abort)
             await page.route("**/analytics/**", _abort)
-            response = await page.goto(url, timeout=30000)
+            response = await page.goto(url, timeout=30000, wait_until="domcontentloaded")
             await page.wait_for_load_state("domcontentloaded")
             await page.wait_for_timeout(5000)
             for offset in (0, 500, 1000):
@@ -311,6 +359,7 @@ def fetch_zhihu_user(user_id: str, name: str, db_path: Optional[str] = None) -> 
     print(f"  抓取知乎用户: {name} ({url})")
 
     storage_state_path = _get_storage_state_path()
+    _sync_storage_state_from_env(storage_state_path)
     page_result = asyncio.run(_fetch_page_content(url, storage_state_path=storage_state_path))
     page_content = _coerce_page_content(page_result, url)
     html = page_content["html"]
