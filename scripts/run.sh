@@ -60,6 +60,12 @@ set -a
 . "$REPO_DIR/.env"
 set +a
 
+# 提前校验 GITHUB_PAT，避免整个流水线跑完后才发现无法推送
+if [ -z "${GITHUB_PAT:-}" ]; then
+    emit_error "缺少 GITHUB_PAT，无法执行 Git push"
+    exit 1
+fi
+
 # 设置 DB 路径（供 fetch 脚本去重用）
 export OCTOPUS_DB="$DB_PATH"
 # 设置 PYTHONPATH（使 scripts 模块可导入）
@@ -103,11 +109,6 @@ echo "[$(date)] 生成摘要: $OUTPUT_FILE" | tee -a "$LOG_FILE"
 # Git push
 cd "$REPO_DIR"
 echo "[$(date)] Git push..." | tee -a "$LOG_FILE"
-
-if [ -z "${GITHUB_PAT:-}" ]; then
-    echo "[$(date)] 错误：缺少 GITHUB_PAT，无法执行 Git push" | tee -a "$LOG_FILE"
-    exit 1
-fi
 
 GIT_ASKPASS_SCRIPT="$SCRIPT_DIR/git_askpass.sh"
 if [ ! -x "$GIT_ASKPASS_SCRIPT" ]; then
