@@ -564,7 +564,7 @@ class TestFetchZhihuRuntime:
             async def route(self, pattern, handler):
                 return None
 
-            async def goto(self, url, timeout=30000):
+            async def goto(self, url, timeout=30000, **kwargs):
                 return types.SimpleNamespace(status=self._status_code)
 
             async def wait_for_load_state(self, state):
