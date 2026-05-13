@@ -461,9 +461,11 @@ class TestRunSh:
 
         assert result.returncode == 0
         expected_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-AM.md'}"
-        assert trace_lines.count(expected_uv) == 1
+        summarize_lines = [line for line in trace_lines if "summarize.py" in line]
+        assert summarize_lines == [expected_uv]
         expected_commit = "commit -m Daily update: 2026-05-13 AM"
-        assert trace_lines.count(expected_commit) == 1
+        commit_lines = [line for line in trace_lines if "commit -m" in line]
+        assert commit_lines == [expected_commit]
         # ensure no PM artifacts are present
         opposite_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-PM.md'}"
         assert opposite_uv not in trace_lines
@@ -531,9 +533,11 @@ class TestRunSh:
 
         assert result.returncode == 0
         expected_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-PM.md'}"
-        assert trace_lines.count(expected_uv) == 1
+        summarize_lines = [line for line in trace_lines if "summarize.py" in line]
+        assert summarize_lines == [expected_uv]
         expected_commit = "commit -m Daily update: 2026-05-13 PM"
-        assert trace_lines.count(expected_commit) == 1
+        commit_lines = [line for line in trace_lines if "commit -m" in line]
+        assert commit_lines == [expected_commit]
         # ensure no AM artifacts are present
         opposite_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-AM.md'}"
         assert opposite_uv not in trace_lines
