@@ -29,6 +29,7 @@ octopus/
    - `GITHUB_PAT`：GitHub Personal Access Token
    - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`：飞书应用凭证（如需）
    - `ZHIHU_USERNAME` / `ZHIHU_PASSWORD`：知乎登录凭证，用于首次登录和会话刷新
+   - `TZ`：时区，例如 `Asia/Shanghai`。Docker 模式下，AM/PM 路由会跟随容器内的 `date` 结果，因此这里要设置为你期望的本地时区。
 
 2. 在 `scripts/config.yaml` 中配置要采集的信息源
 
@@ -58,6 +59,7 @@ uv run python scripts/playwright_setup.py --install-if-missing
 ### 方式 B：使用 Docker 运行（推荐）
 
 Docker 封装了所有 Python 依赖和 Playwright Chromium，环境更一致，换机时只需迁移仓库、`.env` 和 cron 配置。
+注意：Docker 模式下，`scripts/run.sh` 通过容器内的 `date` 判断上午/下午，因此必须确保 `/home/admin/octopus/.env` 里的 `TZ` 已设置正确；`docker run --env-file /home/admin/octopus/.env` 会把它传入容器。
 
 **首次构建镜像（仅需一次，更新依赖后重新构建）：**
 
