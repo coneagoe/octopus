@@ -428,6 +428,117 @@ class TestFetchZhihuRuntime:
 
         assert json.loads(cache_path.read_text(encoding="utf-8")) == stale_cache
 
+    def test_fetch_zhihu_user_raises_cookie_expired_error_when_login_needs_manual_verification(
+        self, monkeypatch, tmp_path
+    ):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+        monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
+        monkeypatch.setenv("ZHIHU_USERNAME", "demo-account")
+        monkeypatch.setenv("ZHIHU_PASSWORD", "demo-password")
+
+        async def fake_fetch_page_content(url, storage_state_path=None):
+            return {
+                "status_code": 403,
+                "final_url": url,
+                "html": "<html><body>blocked</body></html>",
+            }
+
+        async def fake_login_and_save_state(*args, **kwargs):
+            raise fetch_zhihu.FetchZhihuError("知乎登录未完成，可能需要人工处理验证")
+
+        monkeypatch.setattr(fetch_zhihu, "_fetch_page_content", fake_fetch_page_content)
+        monkeypatch.setattr(fetch_zhihu, "_login_and_save_state", fake_login_and_save_state)
+
+        with pytest.raises(fetch_zhihu.FetchZhihuError) as exc_info:
+            fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
+
+        error_message = str(exc_info.value)
+        assert "知乎 cookie 已过期或失效" in error_message
+        assert "重新导入 ZHIHU_COOKIES" in error_message
+        assert "人工处理验证" in error_message
+
+    def test_fetch_zhihu_user_raises_cookie_expired_error_when_profile_still_blocked_after_login(
+        self, monkeypatch, tmp_path
+    ):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+        monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
+        monkeypatch.setenv("ZHIHU_USERNAME", "demo-account")
+        monkeypatch.setenv("ZHIHU_PASSWORD", "demo-password")
+
+        fetch_results = [
+            {
+                "status_code": 403,
+                "final_url": "https://www.zhihu.com/people/demo-user",
+                "html": "<html><body>blocked</body></html>",
+            },
+            {
+                "status_code": 403,
+                "final_url": "https://www.zhihu.com/people/demo-user",
+                "html": "<html><body>still blocked</body></html>",
+            },
+        ]
+
+        async def fake_fetch_page_content(url, storage_state_path=None):
+            return fetch_results.pop(0)
+
+        async def fake_login_and_save_state(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(fetch_zhihu, "_fetch_page_content", fake_fetch_page_content)
+        monkeypatch.setattr(fetch_zhihu, "_login_and_save_state", fake_login_and_save_state)
+
+        with pytest.raises(fetch_zhihu.FetchZhihuError) as exc_info:
+            fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
+
+        error_message = str(exc_info.value)
+        assert "知乎 cookie 已过期或失效" in error_message
+        assert "自动登录后仍无法访问用户主页" in error_message
+        assert "重新导入 ZHIHU_COOKIES" in error_message
+
+    def test_main_prints_cookie_expired_error_for_failed_user(self, monkeypatch, tmp_path, capsys):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        cache_dir = tmp_path / "output"
+        cache_dir.mkdir()
+        cache_path = cache_dir / "zhihu_cache.json"
+        stale_cache = [{"title": "旧条目", "url": "https://www.zhihu.com/question/1/answer/1"}]
+        cache_path.write_text(json.dumps(stale_cache, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        monkeypatch.setattr(
+            fetch_zhihu,
+            "load_config",
+            lambda: {"sources": {"zhihu": [{"user_id": "demo-user", "name": "Demo"}]}},
+        )
+        monkeypatch.setattr(
+            fetch_zhihu,
+            "fetch_zhihu_user",
+            lambda user_id, name, db_path=None: (_ for _ in ()).throw(
+                fetch_zhihu.FetchZhihuError(
+                    "知乎 cookie 已过期或失效，且自动登录未完成，可能需要人工处理验证；请重新导入 ZHIHU_COOKIES"
+                )
+            ),
+        )
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+
+        with pytest.raises(SystemExit, match="1"):
+            fetch_zhihu.main()
+
+        captured = capsys.readouterr()
+        assert "抓取知乎用户失败: Demo -" in captured.out
+        assert "知乎 cookie 已过期或失效" in captured.out
+        assert "重新导入 ZHIHU_COOKIES" in captured.out
+        assert json.loads(cache_path.read_text(encoding="utf-8")) == stale_cache
+
     def test_fetch_zhihu_user_retries_with_login_after_auth_failure(self, monkeypatch, tmp_path):
         from scripts import fetch_zhihu
 
