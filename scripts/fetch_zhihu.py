@@ -402,7 +402,7 @@ def fetch_zhihu_user(user_id: str, name: str, db_path: Optional[str] = None) -> 
         if _page_requires_login(page_content["status_code"], page_content["final_url"], html):
             raise FetchZhihuError(
                 _build_auth_failure_error(
-                    "自动登录后仍无法访问用户主页",
+                    "知乎登录后仍无法访问用户主页",
                     had_cookie_login_attempt=had_cookie_login_attempt,
                 )
             )

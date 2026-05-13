@@ -531,7 +531,7 @@ class TestFetchZhihuRuntime:
             fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
 
         error_message = str(exc_info.value)
-        assert error_message == "自动登录后仍无法访问用户主页"
+        assert error_message == "知乎登录后仍无法访问用户主页"
 
     def test_fetch_zhihu_user_raises_cookie_expired_error_when_cookie_attempt_profile_still_blocked_after_login(
         self, monkeypatch, tmp_path
@@ -573,7 +573,7 @@ class TestFetchZhihuRuntime:
 
         error_message = str(exc_info.value)
         assert "知乎 cookie 已过期或失效" in error_message
-        assert "自动登录后仍无法访问用户主页" in error_message
+        assert "知乎登录后仍无法访问用户主页" in error_message
         assert "重新导入 ZHIHU_COOKIES" in error_message
 
     @pytest.mark.parametrize("cookie_source", ["saved_state", "env_cookie"])
