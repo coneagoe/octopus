@@ -428,7 +428,7 @@ class TestFetchZhihuRuntime:
 
         assert json.loads(cache_path.read_text(encoding="utf-8")) == stale_cache
 
-    def test_fetch_zhihu_user_raises_cookie_expired_error_when_login_needs_manual_verification(
+    def test_fetch_zhihu_user_preserves_login_error_when_no_cookie_attempt_and_login_needs_manual_verification(
         self, monkeypatch, tmp_path
     ):
         from scripts import fetch_zhihu
@@ -457,11 +457,9 @@ class TestFetchZhihuRuntime:
             fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
 
         error_message = str(exc_info.value)
-        assert "知乎 cookie 已过期或失效" in error_message
-        assert "重新导入 ZHIHU_COOKIES" in error_message
-        assert "人工处理验证" in error_message
+        assert error_message == "知乎登录未完成，可能需要人工处理验证"
 
-    def test_fetch_zhihu_user_raises_cookie_expired_error_when_profile_still_blocked_after_login(
+    def test_fetch_zhihu_user_raises_cookie_expired_error_when_cookie_attempt_login_needs_manual_verification(
         self, monkeypatch, tmp_path
     ):
         from scripts import fetch_zhihu
@@ -472,6 +470,81 @@ class TestFetchZhihuRuntime:
         monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
         monkeypatch.setenv("ZHIHU_USERNAME", "demo-account")
         monkeypatch.setenv("ZHIHU_PASSWORD", "demo-password")
+        monkeypatch.setenv("ZHIHU_COOKIES", "z_c0=fake-cookie")
+
+        async def fake_fetch_page_content(url, storage_state_path=None):
+            return {
+                "status_code": 403,
+                "final_url": url,
+                "html": "<html><body>blocked</body></html>",
+            }
+
+        async def fake_login_and_save_state(*args, **kwargs):
+            raise fetch_zhihu.FetchZhihuError("知乎登录未完成，可能需要人工处理验证")
+
+        monkeypatch.setattr(fetch_zhihu, "_fetch_page_content", fake_fetch_page_content)
+        monkeypatch.setattr(fetch_zhihu, "_login_and_save_state", fake_login_and_save_state)
+
+        with pytest.raises(fetch_zhihu.FetchZhihuError) as exc_info:
+            fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
+
+        error_message = str(exc_info.value)
+        assert "知乎 cookie 已过期或失效" in error_message
+        assert "重新导入 ZHIHU_COOKIES" in error_message
+        assert "人工处理验证" in error_message
+
+    def test_fetch_zhihu_user_preserves_auth_failure_when_no_cookie_attempt_and_profile_still_blocked_after_login(
+        self, monkeypatch, tmp_path
+    ):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+        monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
+        monkeypatch.setenv("ZHIHU_USERNAME", "demo-account")
+        monkeypatch.setenv("ZHIHU_PASSWORD", "demo-password")
+
+        fetch_results = [
+            {
+                "status_code": 403,
+                "final_url": "https://www.zhihu.com/people/demo-user",
+                "html": "<html><body>blocked</body></html>",
+            },
+            {
+                "status_code": 403,
+                "final_url": "https://www.zhihu.com/people/demo-user",
+                "html": "<html><body>still blocked</body></html>",
+            },
+        ]
+
+        async def fake_fetch_page_content(url, storage_state_path=None):
+            return fetch_results.pop(0)
+
+        async def fake_login_and_save_state(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(fetch_zhihu, "_fetch_page_content", fake_fetch_page_content)
+        monkeypatch.setattr(fetch_zhihu, "_login_and_save_state", fake_login_and_save_state)
+
+        with pytest.raises(fetch_zhihu.FetchZhihuError) as exc_info:
+            fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
+
+        error_message = str(exc_info.value)
+        assert error_message == "自动登录后仍无法访问用户主页"
+
+    def test_fetch_zhihu_user_raises_cookie_expired_error_when_cookie_attempt_profile_still_blocked_after_login(
+        self, monkeypatch, tmp_path
+    ):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+        monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
+        monkeypatch.setenv("ZHIHU_USERNAME", "demo-account")
+        monkeypatch.setenv("ZHIHU_PASSWORD", "demo-password")
+        monkeypatch.setenv("ZHIHU_COOKIES", "z_c0=fake-cookie")
 
         fetch_results = [
             {
