@@ -28,6 +28,10 @@ class ZhihuPageContent(TypedDict):
     html: str
 
 
+def _build_cookie_expired_error(detail: str) -> str:
+    return f"知乎 cookie 已过期或失效，{detail}；请重新导入 ZHIHU_COOKIES"
+
+
 def load_config():
     import yaml
     with open(CONFIG_PATH) as f:
@@ -366,12 +370,17 @@ def fetch_zhihu_user(user_id: str, name: str, db_path: Optional[str] = None) -> 
 
     if _page_requires_login(page_content["status_code"], page_content["final_url"], html):
         username, password = _load_zhihu_credentials()
-        asyncio.run(_login_and_save_state(username, password, storage_state_path))
+        try:
+            asyncio.run(_login_and_save_state(username, password, storage_state_path))
+        except FetchZhihuError as exc:
+            raise FetchZhihuError(
+                _build_cookie_expired_error("且自动登录未完成，可能需要人工处理验证")
+            ) from exc
         page_result = asyncio.run(_fetch_page_content(url, storage_state_path=storage_state_path))
         page_content = _coerce_page_content(page_result, url)
         html = page_content["html"]
         if _page_requires_login(page_content["status_code"], page_content["final_url"], html):
-            raise FetchZhihuError("知乎登录后仍无法访问用户主页")
+            raise FetchZhihuError(_build_cookie_expired_error("自动登录后仍无法访问用户主页"))
 
     if not isinstance(html, str) or not html:
         raise FetchZhihuError("获取页面内容失败")
