@@ -464,6 +464,10 @@ class TestRunSh:
         assert expected_uv in trace_lines
         expected_commit = "commit -m Daily update: 2026-05-13 AM"
         assert expected_commit in trace_lines
+        # ensure no PM artifacts are present
+        opposite_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-PM.md'}"
+        assert opposite_uv not in trace_lines
+        assert "commit -m Daily update: 2026-05-13 PM" not in trace_lines
 
     def test_run_sh_writes_pm_output_file_and_commit_message(self, tmp_path):
         repo_dir = tmp_path / "repo"
@@ -530,3 +534,7 @@ class TestRunSh:
         assert expected_uv in trace_lines
         expected_commit = "commit -m Daily update: 2026-05-13 PM"
         assert expected_commit in trace_lines
+        # ensure no AM artifacts are present
+        opposite_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-AM.md'}"
+        assert opposite_uv not in trace_lines
+        assert "commit -m Daily update: 2026-05-13 AM" not in trace_lines
