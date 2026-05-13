@@ -100,11 +100,19 @@ echo "[$(date)] 采集邮件..." | tee -a "$LOG_FILE"
 "$UV_BIN" run python "$SCRIPT_DIR/fetch_email.py" >> "$LOG_FILE" 2>&1
 
 # 合并数据生成今日摘要
-TODAY=$(date '+%Y-%m-%d')
-OUTPUT_FILE="$OUTPUT_DIR/${TODAY}.md"
+REPORT_DATE="${OCTOPUS_REPORT_DATE:-$(date '+%Y-%m-%d')}"
+REPORT_HOUR="${OCTOPUS_REPORT_HOUR:-$(date '+%H')}"
+
+if [ "$REPORT_HOUR" -lt 12 ]; then
+    REPORT_PERIOD="AM"
+else
+    REPORT_PERIOD="PM"
+fi
+
+OUTPUT_FILE="$OUTPUT_DIR/${REPORT_DATE}-${REPORT_PERIOD}.md"
 
 echo "[$(date)] 生成摘要: $OUTPUT_FILE" | tee -a "$LOG_FILE"
-"$UV_BIN" run python "$SCRIPT_DIR/summarize.py" --date "$TODAY" --output "$OUTPUT_FILE" >> "$LOG_FILE" 2>&1
+"$UV_BIN" run python "$SCRIPT_DIR/summarize.py" --date "$REPORT_DATE" --output "$OUTPUT_FILE" >> "$LOG_FILE" 2>&1
 
 # Git push
 cd "$REPO_DIR"
@@ -127,7 +135,7 @@ case "$REMOTE_URL" in
 esac
 
 git add output/daily/
-git commit -m "Daily update: $TODAY" || echo "Nothing to commit"
+git commit -m "Daily update: $REPORT_DATE $REPORT_PERIOD" || echo "Nothing to commit"
 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$GIT_ASKPASS_SCRIPT" git push origin main
 
 echo "[$(date)] 完成!" | tee -a "$LOG_FILE"
