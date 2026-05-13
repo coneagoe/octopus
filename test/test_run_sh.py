@@ -5,7 +5,6 @@ import stat
 import subprocess
 import textwrap
 from pathlib import Path
-import sys
 
 # subprocess.run in supported Python versions accepts capture_output and text
 
