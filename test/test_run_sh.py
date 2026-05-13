@@ -461,9 +461,9 @@ class TestRunSh:
 
         assert result.returncode == 0
         expected_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-AM.md'}"
-        assert expected_uv in trace_lines
+        assert trace_lines.count(expected_uv) == 1
         expected_commit = "commit -m Daily update: 2026-05-13 AM"
-        assert expected_commit in trace_lines
+        assert trace_lines.count(expected_commit) == 1
         # ensure no PM artifacts are present
         opposite_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-PM.md'}"
         assert opposite_uv not in trace_lines
@@ -531,9 +531,9 @@ class TestRunSh:
 
         assert result.returncode == 0
         expected_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-PM.md'}"
-        assert expected_uv in trace_lines
+        assert trace_lines.count(expected_uv) == 1
         expected_commit = "commit -m Daily update: 2026-05-13 PM"
-        assert expected_commit in trace_lines
+        assert trace_lines.count(expected_commit) == 1
         # ensure no AM artifacts are present
         opposite_uv = f"run python {scripts_dir / 'summarize.py'} --date 2026-05-13 --output {repo_dir / 'output' / 'daily' / '2026-05-13-AM.md'}"
         assert opposite_uv not in trace_lines
