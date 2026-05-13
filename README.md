@@ -17,7 +17,7 @@ octopus/
 │   ├── playwright_setup.py # Playwright Chromium 检查与安装
 │   └── config.yaml         # 信息源配置
 ├── output/
-│   └── daily/              # 每日输出
+│   └── daily/              # 每日输出（按运行时刻拆分为 YYYY-MM-DD-AM.md / YYYY-MM-DD-PM.md）
 ├── .env                     # 敏感信息（不在 Git 中）
 ├── .gitignore
 └── README.md
@@ -44,6 +44,8 @@ uv run python scripts/playwright_setup.py --install-if-missing
 知乎的 Playwright 登录状态会保存到 `output/zhihu_storage_state.json`，仅保留在本地，不会提交到 Git。状态过期或需要额外验证时，脚本会重试登录一次；只有当本次知乎抓取完全失败、没有任何用户成功拉取时，才会保留旧的 `output/zhihu_cache.json` 并记录错误原因。
 
 ## 定时任务
+
+`output/daily/` 下的日报按运行时刻拆分为 `YYYY-MM-DD-AM.md` 和 `YYYY-MM-DD-PM.md`。现有 `scripts/run.sh morning` / `scripts/run.sh evening` 示例继续可用；文件写入目标由实际运行时刻决定：12:00 前写 `AM`，12:00 及以后写 `PM`。
 
 ### 方式 A：直接运行（无 Docker）
 
