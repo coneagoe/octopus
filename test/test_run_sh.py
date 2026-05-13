@@ -7,22 +7,7 @@ import textwrap
 from pathlib import Path
 import sys
 
-# Provide capture_output compatibility for Python < 3.7 where subprocess.run doesn't accept capture_output
-if sys.version_info < (3, 7):
-    _orig_subprocess_run = subprocess.run
-    def _compat_subprocess_run(*popenargs, **kwargs):
-        # support capture_output by mapping to stdout/stderr
-        if 'capture_output' in kwargs:
-            cap = kwargs.pop('capture_output')
-            if cap:
-                kwargs.setdefault('stdout', subprocess.PIPE)
-                kwargs.setdefault('stderr', subprocess.PIPE)
-        # support text=True by mapping to universal_newlines
-        if 'text' in kwargs:
-            text_val = kwargs.pop('text')
-            kwargs.setdefault('universal_newlines', text_val)
-        return _orig_subprocess_run(*popenargs, **kwargs)
-    subprocess.run = _compat_subprocess_run
+# subprocess.run in supported Python versions accepts capture_output and text
 
 
 def _write_executable(path, content):
