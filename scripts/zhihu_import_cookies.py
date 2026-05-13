@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 """
 知乎 Session 导入工具
 
@@ -15,8 +13,10 @@ from __future__ import annotations
   或者，可以直接粘贴浏览器 DevTools 里 Network 面板的 Cookie 请求头：
        uv run python scripts/zhihu_import_cookies.py --cookie-header "z_c0=xxx; _xsrf=yyy; ..."
 
-  导入后，ZHIHU_COOKIES 会自动写入 .env，下次运行无需重复导入。
+   导入后，ZHIHU_COOKIES 会自动写入 .env，下次运行无需重复导入。
 """
+
+from __future__ import annotations
 
 import argparse
 import json
