@@ -363,13 +363,24 @@ def fetch_zhihu_user(user_id: str, name: str, db_path: Optional[str] = None) -> 
     print(f"  抓取知乎用户: {name} ({url})")
 
     storage_state_path = _get_storage_state_path()
-    _sync_storage_state_from_env(storage_state_path)
+    had_saved_storage_state = os.path.exists(storage_state_path)
+    synced_storage_state_from_env = _sync_storage_state_from_env(storage_state_path)
+    had_cookie_login_attempt = had_saved_storage_state or synced_storage_state_from_env
     page_result = asyncio.run(_fetch_page_content(url, storage_state_path=storage_state_path))
     page_content = _coerce_page_content(page_result, url)
     html = page_content["html"]
 
     if _page_requires_login(page_content["status_code"], page_content["final_url"], html):
-        username, password = _load_zhihu_credentials()
+        try:
+            username, password = _load_zhihu_credentials()
+        except FetchZhihuError as exc:
+            if had_cookie_login_attempt:
+                raise FetchZhihuError(
+                    _build_cookie_expired_error(
+                        "且未配置 ZHIHU_USERNAME/ZHIHU_PASSWORD，无法自动登录"
+                    )
+                ) from exc
+            raise
         try:
             asyncio.run(_login_and_save_state(username, password, storage_state_path))
         except FetchZhihuError as exc:

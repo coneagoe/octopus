@@ -503,6 +503,44 @@ class TestFetchZhihuRuntime:
         assert "自动登录后仍无法访问用户主页" in error_message
         assert "重新导入 ZHIHU_COOKIES" in error_message
 
+    @pytest.mark.parametrize("cookie_source", ["saved_state", "env_cookie"])
+    def test_fetch_zhihu_user_surfaces_cookie_expired_guidance_when_cookie_login_fails_without_credentials(
+        self, monkeypatch, tmp_path, cookie_source
+    ):
+        from scripts import fetch_zhihu
+
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+        monkeypatch.setattr(fetch_zhihu, "__file__", str(fake_scripts_dir / "fetch_zhihu.py"))
+        monkeypatch.setattr(fetch_zhihu, "is_chromium_ready", lambda: (True, ""))
+        monkeypatch.delenv("ZHIHU_USERNAME", raising=False)
+        monkeypatch.delenv("ZHIHU_PASSWORD", raising=False)
+        monkeypatch.delenv("ZHIHU_COOKIES", raising=False)
+
+        storage_state_path = tmp_path / "output" / "zhihu_storage_state.json"
+        if cookie_source == "saved_state":
+            storage_state_path.parent.mkdir()
+            storage_state_path.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+        else:
+            monkeypatch.setenv("ZHIHU_COOKIES", "z_c0=fake-cookie")
+
+        async def fake_fetch_page_content(url, storage_state_path=None):
+            return {
+                "status_code": 403,
+                "final_url": url,
+                "html": "<html><body>请先登录后继续访问</body></html>",
+            }
+
+        monkeypatch.setattr(fetch_zhihu, "_fetch_page_content", fake_fetch_page_content)
+
+        with pytest.raises(fetch_zhihu.FetchZhihuError) as exc_info:
+            fetch_zhihu.fetch_zhihu_user("demo-user", "Demo")
+
+        error_message = str(exc_info.value)
+        assert "知乎 cookie 已过期或失效" in error_message
+        assert "ZHIHU_USERNAME/ZHIHU_PASSWORD" in error_message
+        assert "重新导入 ZHIHU_COOKIES" in error_message
+
     def test_main_prints_cookie_expired_error_for_failed_user(self, monkeypatch, tmp_path, capsys):
         from scripts import fetch_zhihu
 
