@@ -219,6 +219,8 @@ def main():
     feishu_entries = load_cache('feishu')
     email_entries = load_cache('email')
     zhihu_cache_path = get_cache_path('zhihu')
+    # Only an existing cache file with a list payload counts as a successful Zhihu fetch for
+    # report rendering; malformed payloads are treated like failed or missing input.
     zhihu_fetch_succeeded = os.path.exists(zhihu_cache_path) and isinstance(zhihu_entries, list)
     if not isinstance(zhihu_entries, list):
         zhihu_entries = []
