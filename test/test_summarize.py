@@ -60,3 +60,86 @@ class TestGenerateCommentary:
         monkeypatch.setattr("requests.post", lambda *a, **kw: (_ for _ in ()).throw(Exception("fail")))
         result = summarize.generate_commentary("标题", "摘要", "来源", "fake-key")
         assert result == "（AI 点评生成失败）"
+
+
+class TestGenerateMarkdown:
+    def test_includes_zhihu_zero_count_when_fetch_succeeded_with_no_entries(self, monkeypatch):
+        monkeypatch.setattr(
+            summarize,
+            "generate_commentary",
+            lambda title, summary, source, api_key: "不会被调用",
+        )
+
+        md = summarize.generate_markdown(
+            "2026-05-13",
+            {
+                "rss": [],
+                "zhihu": [],
+                "web": [],
+                "feishu": [],
+                "email": [],
+            },
+            "fake-key",
+            zhihu_fetch_succeeded=True,
+        )
+
+        assert "## 知乎回答" in md
+        assert "_知乎 0条_" in md
+        assert "_今日无新内容_" in md
+        assert "共 0 条内容" in md
+
+    def test_omits_zhihu_section_when_fetch_did_not_succeed(self, monkeypatch):
+        monkeypatch.setattr(
+            summarize,
+            "generate_commentary",
+            lambda title, summary, source, api_key: "不会被调用",
+        )
+
+        md = summarize.generate_markdown(
+            "2026-05-13",
+            {
+                "rss": [],
+                "zhihu": [],
+                "web": [],
+                "feishu": [],
+                "email": [],
+            },
+            "fake-key",
+            zhihu_fetch_succeeded=False,
+        )
+
+        assert "## 知乎回答" not in md
+        assert "_知乎 0条_" not in md
+        assert "_今日无新内容_" in md
+        assert "共 0 条内容" in md
+
+
+class TestMainZhihuStatus:
+    def test_main_passes_false_when_zhihu_cache_file_is_missing(self, monkeypatch, tmp_path):
+        output_path = tmp_path / "daily.md"
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+
+        monkeypatch.setattr(summarize, "__file__", str(fake_scripts_dir / "summarize.py"))
+        monkeypatch.setenv("MINIMAX_API_KEY", "fake-key")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["summarize.py", "--date", "2026-05-13", "--output", str(output_path)],
+        )
+
+        monkeypatch.setattr(summarize, "load_cache", lambda category: [])
+        monkeypatch.setattr(os.path, "exists", lambda path: False)
+
+        captured = {}
+
+        def fake_generate_markdown(date, entries_by_source, api_key, zhihu_fetch_succeeded):
+            captured["zhihu_fetch_succeeded"] = zhihu_fetch_succeeded
+            return "stub markdown"
+
+        monkeypatch.setattr(summarize, "generate_markdown", fake_generate_markdown)
+
+        summarize.main()
+
+        assert captured["zhihu_fetch_succeeded"] is False
+        assert output_path.read_text(encoding="utf-8") == "stub markdown"
