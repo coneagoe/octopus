@@ -220,6 +220,8 @@ def main():
     email_entries = load_cache('email')
     zhihu_cache_path = get_cache_path('zhihu')
     zhihu_fetch_succeeded = os.path.exists(zhihu_cache_path) and isinstance(zhihu_entries, list)
+    if not isinstance(zhihu_entries, list):
+        zhihu_entries = []
 
     print(f"  RSS: {len(rss_entries)} 条")
     print(f"  知乎: {len(zhihu_entries)} 条")

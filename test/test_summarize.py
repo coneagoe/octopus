@@ -143,3 +143,39 @@ class TestMainZhihuStatus:
 
         assert captured["zhihu_fetch_succeeded"] is False
         assert output_path.read_text(encoding="utf-8") == "stub markdown"
+
+    def test_main_normalizes_non_list_zhihu_cache_payload(self, monkeypatch, tmp_path):
+        output_path = tmp_path / "daily.md"
+        fake_scripts_dir = tmp_path / "scripts"
+        fake_scripts_dir.mkdir()
+
+        monkeypatch.setattr(summarize, "__file__", str(fake_scripts_dir / "summarize.py"))
+        monkeypatch.setenv("MINIMAX_API_KEY", "fake-key")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["summarize.py", "--date", "2026-05-13", "--output", str(output_path)],
+        )
+
+        def fake_load_cache(category):
+            if category == "zhihu":
+                return {"title": "bad payload"}
+            return []
+
+        monkeypatch.setattr(summarize, "load_cache", fake_load_cache)
+        monkeypatch.setattr(os.path, "exists", lambda path: path == summarize.get_cache_path("zhihu"))
+
+        captured = {}
+
+        def fake_generate_markdown(date, entries_by_source, api_key, zhihu_fetch_succeeded):
+            captured["entries_by_source"] = entries_by_source
+            captured["zhihu_fetch_succeeded"] = zhihu_fetch_succeeded
+            return "stub markdown"
+
+        monkeypatch.setattr(summarize, "generate_markdown", fake_generate_markdown)
+
+        summarize.main()
+
+        assert captured["zhihu_fetch_succeeded"] is False
+        assert captured["entries_by_source"]["zhihu"] == []
+        assert output_path.read_text(encoding="utf-8") == "stub markdown"
