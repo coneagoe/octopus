@@ -29,13 +29,22 @@ def strip_html(text):
 MINIMAX_API_URL = "https://api.minimax.chat/v1/text/chatcompletion_v2"
 
 
+def get_cache_path(category):
+    return os.path.join(os.path.dirname(__file__), '..', 'output', f'{category}_cache.json')
+
+
 def load_cache(category):
     """加载缓存文件"""
-    cache_file = os.path.join(os.path.dirname(__file__), '..', 'output', f'{category}_cache.json')
+    cache_file = get_cache_path(category)
     if os.path.exists(cache_file):
         with open(cache_file, encoding='utf-8') as f:
             return json.load(f)
     return []
+
+
+def normalize_entries(entries):
+    """将缓存载荷归一化为列表，避免畸形 JSON 影响摘要生成"""
+    return entries if isinstance(entries, list) else []
 
 
 def generate_commentary(title, summary, source, api_key):
@@ -77,7 +86,7 @@ def generate_commentary(title, summary, source, api_key):
         return "（AI 点评生成失败）"
 
 
-def generate_markdown(date, entries_by_source, api_key):
+def generate_markdown(date, entries_by_source, api_key, zhihu_fetch_succeeded=False):
     """生成 Markdown 文档"""
 
     md = f"""# 信息聚合日报 {date}
@@ -129,6 +138,8 @@ def generate_markdown(date, entries_by_source, api_key):
 
 """
         md += "\n"
+    elif zhihu_fetch_succeeded:
+        md += "## 知乎回答\n\n_知乎 0条_\n\n"
 
     # 网站
     web_entries = entries_by_source.get('web', [])
@@ -207,11 +218,16 @@ def main():
 
     print(f"[摘要生成] 生成日期: {args.date}")
 
-    rss_entries = load_cache('rss')
-    zhihu_entries = load_cache('zhihu')
-    web_entries = load_cache('web')
-    feishu_entries = load_cache('feishu')
-    email_entries = load_cache('email')
+    rss_entries = normalize_entries(load_cache('rss'))
+    zhihu_entries_raw = load_cache('zhihu')
+    web_entries = normalize_entries(load_cache('web'))
+    feishu_entries = normalize_entries(load_cache('feishu'))
+    email_entries = normalize_entries(load_cache('email'))
+    zhihu_cache_path = get_cache_path('zhihu')
+    # Only an existing cache file with a list payload counts as a successful Zhihu fetch for
+    # report rendering; malformed payloads are treated like failed or missing input.
+    zhihu_fetch_succeeded = os.path.exists(zhihu_cache_path) and isinstance(zhihu_entries_raw, list)
+    zhihu_entries = normalize_entries(zhihu_entries_raw)
 
     print(f"  RSS: {len(rss_entries)} 条")
     print(f"  知乎: {len(zhihu_entries)} 条")
@@ -227,7 +243,12 @@ def main():
         'email': email_entries
     }
 
-    md = generate_markdown(args.date, entries_by_source, api_key)
+    md = generate_markdown(
+        args.date,
+        entries_by_source,
+        api_key,
+        zhihu_fetch_succeeded=zhihu_fetch_succeeded
+    )
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     with open(args.output, 'w', encoding='utf-8') as f:
