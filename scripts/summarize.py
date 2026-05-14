@@ -42,6 +42,11 @@ def load_cache(category):
     return []
 
 
+def normalize_entries(entries):
+    """将缓存载荷归一化为列表，避免畸形 JSON 影响摘要生成"""
+    return entries if isinstance(entries, list) else []
+
+
 def generate_commentary(title, summary, source, api_key):
     """调用 MiniMax AI 生成一句话点评"""
     prompt = f"""你是一个精炼的投资分析师。读完文章后，先给出明确判断（利多/利空/中性），再用一段话说明理由，重点关注：
@@ -213,17 +218,16 @@ def main():
 
     print(f"[摘要生成] 生成日期: {args.date}")
 
-    rss_entries = load_cache('rss')
-    zhihu_entries = load_cache('zhihu')
-    web_entries = load_cache('web')
-    feishu_entries = load_cache('feishu')
-    email_entries = load_cache('email')
+    rss_entries = normalize_entries(load_cache('rss'))
+    zhihu_entries_raw = load_cache('zhihu')
+    web_entries = normalize_entries(load_cache('web'))
+    feishu_entries = normalize_entries(load_cache('feishu'))
+    email_entries = normalize_entries(load_cache('email'))
     zhihu_cache_path = get_cache_path('zhihu')
     # Only an existing cache file with a list payload counts as a successful Zhihu fetch for
     # report rendering; malformed payloads are treated like failed or missing input.
-    zhihu_fetch_succeeded = os.path.exists(zhihu_cache_path) and isinstance(zhihu_entries, list)
-    if not isinstance(zhihu_entries, list):
-        zhihu_entries = []
+    zhihu_fetch_succeeded = os.path.exists(zhihu_cache_path) and isinstance(zhihu_entries_raw, list)
+    zhihu_entries = normalize_entries(zhihu_entries_raw)
 
     print(f"  RSS: {len(rss_entries)} 条")
     print(f"  知乎: {len(zhihu_entries)} 条")
