@@ -29,9 +29,13 @@ def strip_html(text):
 MINIMAX_API_URL = "https://api.minimax.chat/v1/text/chatcompletion_v2"
 
 
+def get_cache_path(category):
+    return os.path.join(os.path.dirname(__file__), '..', 'output', f'{category}_cache.json')
+
+
 def load_cache(category):
     """加载缓存文件"""
-    cache_file = os.path.join(os.path.dirname(__file__), '..', 'output', f'{category}_cache.json')
+    cache_file = get_cache_path(category)
     if os.path.exists(cache_file):
         with open(cache_file, encoding='utf-8') as f:
             return json.load(f)
@@ -77,7 +81,7 @@ def generate_commentary(title, summary, source, api_key):
         return "（AI 点评生成失败）"
 
 
-def generate_markdown(date, entries_by_source, api_key):
+def generate_markdown(date, entries_by_source, api_key, zhihu_fetch_succeeded=False):
     """生成 Markdown 文档"""
 
     md = f"""# 信息聚合日报 {date}
@@ -129,6 +133,8 @@ def generate_markdown(date, entries_by_source, api_key):
 
 """
         md += "\n"
+    elif zhihu_fetch_succeeded:
+        md += "## 知乎回答\n\n_知乎 0条_\n\n"
 
     # 网站
     web_entries = entries_by_source.get('web', [])
@@ -212,6 +218,8 @@ def main():
     web_entries = load_cache('web')
     feishu_entries = load_cache('feishu')
     email_entries = load_cache('email')
+    zhihu_cache_path = get_cache_path('zhihu')
+    zhihu_fetch_succeeded = os.path.exists(zhihu_cache_path) and isinstance(zhihu_entries, list)
 
     print(f"  RSS: {len(rss_entries)} 条")
     print(f"  知乎: {len(zhihu_entries)} 条")
@@ -227,7 +235,12 @@ def main():
         'email': email_entries
     }
 
-    md = generate_markdown(args.date, entries_by_source, api_key)
+    md = generate_markdown(
+        args.date,
+        entries_by_source,
+        api_key,
+        zhihu_fetch_succeeded=zhihu_fetch_succeeded
+    )
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     with open(args.output, 'w', encoding='utf-8') as f:
